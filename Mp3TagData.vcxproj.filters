@@ -1,2 +1,11 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" />
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClInclude Include="Mp3BaseTagData.h" />
+    <ClInclude Include="Mp3TagData.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Mp3GenreList.cpp" />
+    <ClCompile Include="Mp3TagData.cpp" />
+  </ItemGroup>
+</Project>
