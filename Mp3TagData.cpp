@@ -611,9 +611,9 @@ uint32_t Mp3TagData::GetTextSize( const void* textStart, const void* rawFrame ) 
   assert( rawFrame < textStart );
   uint32_t frameSize = GetFrameSize( reinterpret_cast<const uint8_t*>(rawFrame), mFileHeader.majorVersion );
   uint32_t textSize = frameSize + sizeof( ID3v2FrameHdr );
-  auto offset = reinterpret_cast<const uint8_t*>( textStart ) - 
-                reinterpret_cast<const uint8_t*>( rawFrame );
-  assert( offset <= std::numeric_limits<uint32_t>::max() );
+  ptrdiff_t offset = reinterpret_cast<const uint8_t*>( textStart ) - 
+                     reinterpret_cast<const uint8_t*>( rawFrame );
+  assert( offset <= static_cast<ptrdiff_t>( std::numeric_limits<uint32_t>::max() ) );
   auto offset32u = static_cast<uint32_t>( offset );
   assert( offset32u <= textSize );
   textSize -= offset32u;
