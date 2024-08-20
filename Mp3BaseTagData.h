@@ -48,9 +48,11 @@ enum class Mp3FrameType
   Conductor,       // TPE3
   Language,        // TLAN
   Mood,            // TMOO
+  // Add new text frame entries here and to match below
 
   // Other frames
   Comment,         // COMM
+  // Add new non-text frame entries here and to match below
 
   Max
 };
@@ -122,6 +124,7 @@ public:
 
   virtual ~Mp3BaseTagData() = default;
   Mp3BaseTagData() = default;
+
   Mp3BaseTagData( const Mp3BaseTagData& ) = delete;
   Mp3BaseTagData& operator=( const Mp3BaseTagData& ) = delete;
   Mp3BaseTagData( Mp3BaseTagData&& ) = delete;
@@ -145,12 +148,12 @@ public:
   virtual bool Write() = 0;
   virtual bool IsDirty() const = 0;
 
-  // Extract genre name from index
   static constexpr size_t GetMaxGenre()
   {
     return kMaxGenre;
   }
 
+  // Extract genre name from index
   static constexpr const char* GetGenre( size_t n )
   {
     assert( n < kMaxGenre );
@@ -183,13 +186,15 @@ public:
     if( frameID.size() != kFrameIDCharCount )
       return false;
 
-    if( !StrUtil::IsAlphaNum( frameID ) )
-      return false;
-
-    // TODO faster method
-    std::string frameIDUpper( frameID );
-    StrUtil::ToUpper( frameIDUpper );
-    return ( frameIDUpper == frameID );
+    for( auto c : frameID )
+    {
+      // ASCII table excerpt: "0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+      if( c < '0' || c > 'Z' ) // outside of range
+        return false;
+      if( c > '9' && c < 'A' ) // inside ":;<=>?@"
+        return false;
+    }
+    return true;
   }
 
   ///////////////////////////////////////////////////////////////////////////////

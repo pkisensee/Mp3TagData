@@ -27,13 +27,18 @@ class Mp3TagData : public Mp3BaseTagData
 {
 public:
 
-  explicit Mp3TagData( const std::filesystem::path& );
+  Mp3TagData() {}
+  bool LoadTagData( const std::filesystem::path& );
 
-  Mp3TagData() = delete;
   Mp3TagData( const Mp3TagData& ) = delete;
   Mp3TagData& operator=( const Mp3TagData& ) = delete;
   Mp3TagData( Mp3TagData&& ) = delete;
   Mp3TagData& operator=( Mp3TagData&& ) = delete;
+
+  size_t GetFrameCount() const
+  {
+    return frames_.size();
+  }
 
   // Extract string from text frame
   std::string GetText( Mp3FrameType ) const final;
@@ -54,20 +59,20 @@ public:
 
   // Write frame data if there have been changes
   bool Write() final;
-  bool IsDirty() const final {
-    return isDirty;
+  bool IsDirty() const final
+  {
+    return isDirty_;
   }
 
 private:
 
   bool IsValidFileHeader() const;
-  void ReadTagData();
   bool ParseFrame( uint32_t& offset );
   void ParseFrames();
   uint32_t WriteFrameSize( uint32_t frameSize ) const;
   static uint32_t GetFrameSize( const uint8_t* rawFrame, uint8_t version );
   static size_t GetFrameBytes( const uint8_t* rawFrame, uint8_t version );
-  uint32_t GetTextSize( const void* textStart, const void* rawFrame ) const;
+  uint32_t GetTextBytes( const void* textStart, const uint8_t* rawFrame ) const;
 
   ///////////////////////////////////////////////////////////////////////////
   //
@@ -78,7 +83,7 @@ private:
   // rawFrame is never written, only read.
   //
   // newFrame is a new or updated frame; it supercedes rawFrame when it has
-  // size > 1; size == 1 means frame flagged for delete. TODO better way?
+  // size > 1; size == 1 (kFlaggedForDelete) means frame flagged for delete.
   //
   // Safe to cast rawFrame or newFrame.data() to ID3v2FrameHdr*
 
@@ -86,19 +91,20 @@ private:
   {
   private:
     using RawFramePtr = const uint8_t*;
-    using FrameVec = std::vector<uint8_t>; // TODO new name?
+    using FrameBuf = std::vector<uint8_t>;
 
     RawFramePtr rawFrame = nullptr;
-    FrameVec    newFrame;
+    FrameBuf    newFrame;
+
+    static constexpr size_t kFlaggedForDelete = 1;
 
   public:
     Frame() noexcept
-      : rawFrame( nullptr ), newFrame()
     {
     }
 
     Frame( RawFramePtr f ) noexcept
-      : rawFrame( f ), newFrame()
+      : rawFrame( f )
     {
     }
 
@@ -109,12 +115,18 @@ private:
 
     const uint8_t* GetData() const // select the most relevant data
     {
-      return ( newFrame.size() <= 1 ) ? rawFrame : newFrame.data();
+      switch( newFrame.size() )
+      {
+      case 0:                 return rawFrame;
+      case kFlaggedForDelete: return rawFrame;
+      default:                return newFrame.data();
+      }
     }
 
     uint8_t* GetData() // can only modify newFrame
     {
-      assert( newFrame.size() > 1 );
+      assert( newFrame.size() > 0 );
+      assert( newFrame.size() != kFlaggedForDelete );
       return newFrame.data();
     }
 
@@ -140,23 +152,26 @@ private:
 
     bool IsDirty() const // we should write this frame to storage
     {
-      return ( newFrame.size() > 1 );
+      return( ( newFrame.size() > 0 ) && ( newFrame.size() != kFlaggedForDelete ) );
     }
 
     void FlagToDelete() // remove this frame from storage
     {
-      newFrame.resize( 1 );
+      newFrame.resize( kFlaggedForDelete );
     }
 
     size_t GetWriteBytes( uint8_t version ) const // # bytes to write
     {
-      if( newFrame.size() == 1 )
-        return 0u; // deleted frame
-      if( newFrame.size() > 1 )
-        return newFrame.size(); // new frame
-      return GetFrameBytes( rawFrame, version ); // orig frame
+      switch( newFrame.size() )
+      {
+      case 0:                 return GetFrameBytes( rawFrame, version ); // orig frame
+      case kFlaggedForDelete: return 0u;
+      default:                return newFrame.size();
+      }
     }
-  };
+  }; // Frame
+
+private:
 
   const Frame* GetTextFrame( Mp3FrameType ) const;
   size_t GetTextFrameReferencePos( Mp3FrameType ) const;
@@ -173,24 +188,24 @@ private:
   struct ID3v2FileHeader // MP3 File header structure
   {
     // https://mutagen-specs.readthedocs.io/en/latest/id3/id3v2.4.0-structure.html#id3v2-header
-    char     id3[ 3 ];      // 'ID3'
-    uint8_t  majorVersion;  // e.g. 2; never 0xFF
-    uint8_t  minorVersion;  // e.g. 3; never 0xFF
-    uint8_t  flags;         // values in Mp3TagData.cpp
-    uint32_t synchSafeSize; // see id3 6.2, https://en.wikipedia.org/wiki/Synchsafe
+    char     id3[ 3 ] = {};     // 'ID3'
+    uint8_t  majorVersion = 0;  // e.g. 2; never 0xFF
+    uint8_t  minorVersion = 0;  // e.g. 3; never 0xFF
+    uint8_t  flags = 0;         // values in Mp3TagData.cpp
+    uint32_t synchSafeSize = 0; // see id3 6.2, https://en.wikipedia.org/wiki/Synchsafe
   };
 #pragma pack(pop)
 
-  std::filesystem::path mPath;
-  ID3v2FileHeader       mFileHeader;
-  uint32_t              mAudioBufferOffset = 0u;;
-  std::vector<uint8_t>  mFrameBuffer; // raw buffer of all MP3 frames
-  std::vector<Frame>    mFrames;      // list of all MP3 frames
+  std::filesystem::path path_;
+  ID3v2FileHeader       fileHeader_;
+  uint32_t              audioBufferOffset_ = 0u;;
+  std::vector<uint8_t>  frameBuffer_; // raw buffer of all MP3 frames
+  std::vector<Frame>    frames_;      // list of all MP3 frames; typically <50
 
   using FramePos = size_t;               // index into mFrames
-  std::vector<FramePos>  mTextFrames;    // list of all text frames (subset of mFrames)
-  std::vector<FramePos>  mCommentFrames; // list of all comment frames (subset of mFrames)
-  bool isDirty = false;
+  std::vector<FramePos>  textFrames_;    // list of all text frames (subset of mFrames)
+  std::vector<FramePos>  commentFrames_; // list of all comment frames (subset of mFrames)
+  bool isDirty_ = false;
 
 }; // end class Mp3TagData
 
