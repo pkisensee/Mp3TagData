@@ -34,89 +34,14 @@ using namespace PKIsensee;
 namespace // anonymous
 {
 
-constexpr const char* kID3String = "ID3";
-constexpr const char* kEnglishLanguage = "eng";
-
 [[maybe_unused]] constexpr uint8_t kFlagUnsynchronized = ( 1 << 7 );
 [[maybe_unused]] constexpr uint8_t kFlagExtended       = ( 1 << 6 );
 [[maybe_unused]] constexpr uint8_t kFlagExperimental   = ( 1 << 5 );
 [[maybe_unused]] constexpr uint8_t kFlagFooterPresent  = ( 1 << 4 );
 [[maybe_unused]] constexpr uint8_t kFlagsRemaining = ( 0b00001111 ); // must be cleared
 
-constexpr uint8_t kTextEncodingAnsi    = 0;
-constexpr uint8_t kTextEncodingUTF16   = 1;
-constexpr uint8_t kTextEncodingUTF16BE = 2;
-constexpr uint8_t kTextEncodingUTF8    = 3;
-
 constexpr size_t kInvalidFramePos = size_t( -1 );
 constexpr size_t kPaddingBytes = 2048u; // commonly used in MP3 tagging software
-
-#pragma pack(push,1)
-///////////////////////////////////////////////////////////////////////////////
-//
-// ID3 frame structures
-
-// Strings can be encoded in different fashions; this struct disambiguates
-// https://mutagen-specs.readthedocs.io/en/latest/id3/id3v2.2.html#id3v2-frames-overview
-
-struct ID3v2String
-{
-  union {
-    // textEncoding == kTextEncodingAnsi OR kTextEncodingUTF8
-    char utf8[ 1 ];        // string start
-
-    // textEncoding == kTextEncodingUTF16 OR kTextEncodingUTF16BE
-    struct Unicode
-    {
-      uint16_t bom;        // byte order mark
-      wchar_t  utf16[ 1 ]; // string start
-    } unicode;
-  };
-};
-
-// https://mutagen-specs.readthedocs.io/en/latest/id3/id3v2.2.html#text-information-frames
-struct ID3v2TextFrame
-{
-  ID3v2FrameHdr hdr;          // 'Txxx' header
-  uint8_t       textEncoding; // see kTextEncoding IDs above
-  ID3v2String   str;
-};
-
-// https://mutagen-specs.readthedocs.io/en/latest/id3/id3v2.2.html#comments
-struct ID3v2CommentFrame
-{
-  ID3v2FrameHdr hdr;           // 'COMM' header
-  uint8_t       textEncoding;  // see kTextEncoding IDs above
-  char          language[ 3 ]; // e.g. "eng"
-  ID3v2String   str;
-};
-#pragma pack(pop)
-
-///////////////////////////////////////////////////////////////////////////////
-//
-// Converts a source integer from an ID3 file format big endian integer into a 
-// useful native value. Automatically handles endian conversion. For synchSafe
-// integers, kBitsPerByte is 7.
-
-template <uint8_t kBitsPerByte>
-uint32_t ReadID3Int( uint32_t sourceInt )
-{
-  auto result = Util::ToBigEndian( sourceInt );
-  return Util::PackBits<kBitsPerByte>( result );
-}
-
-///////////////////////////////////////////////////////////////////////////////
-//
-// Converts a native integer from to an ID3 file format big endian integer.
-// Automatically handles endian conversion. For synchSafe integers, 
-// kBitsPerByte is 7.
-
-template <uint8_t kBits>
-uint32_t WriteID3Int( uint32_t nativeInt )
-{
-  auto result = Util::UnpackBits<kBits>( nativeInt );
-  return Util::ToBigEndian( result );
-}
 
 } // end anonymous namespace
 
@@ -147,7 +72,7 @@ bool Mp3TagData::LoadTagData( const std::filesystem::path& path )
   if( !IsValidFileHeader() )
     return false;
 
-  auto frameSectionSize = ReadID3Int<7>( fileHeader_.synchSafeSize );
+  auto frameSectionSize = ReadID3Int<7>( fileHeader_.syncSafeSize );
   assert( frameSectionSize < ( 1024 * 1024 ) ); // ensure reasonable
   audioBufferOffset_ = sizeof( fileHeader_ ) + frameSectionSize;
 
@@ -184,31 +109,31 @@ std::string Mp3TagData::GetText( Mp3FrameType frameType ) const
 
   const auto* rawFrame = pFrame->GetData();
   const auto* textFrame = reinterpret_cast<const ID3v2TextFrame*>( rawFrame );
-  assert( textFrame->hdr.frameID[ 0 ] == 'T' );
+  assert( IsTextFrame( textFrame->GetFrameID() ) );
 
   std::string value;
-  switch( textFrame->textEncoding )
+  switch( textFrame->GetTextEncoding() )
   {
-  case kTextEncodingUTF8:
+  case ID3TextEncoding::UTF8:
     // not officially handled; only part of 2.4 spec
     [[fallthrough]];
 
-  case kTextEncodingAnsi:
+  case ID3TextEncoding::ANSI:
   {
-    auto textData = textFrame->str.utf8;
+    auto textData = textFrame->str_.utf8;
     auto charCount = GetTextBytes( textData, rawFrame );
     value.assign( textData, charCount );
     break;
   }
-  case kTextEncodingUTF16:
+  case ID3TextEncoding::UTF16:
   {
-    auto textData = textFrame->str.unicode.utf16;
+    auto textData = textFrame->str_.unicode.utf16;
     auto charCount = GetTextBytes( textData, rawFrame ) / sizeof( wchar_t );
     std::wstring unicode( textData, charCount );
     value = StringUtil::GetUtf8( unicode );
     break;
   }
-  case kTextEncodingUTF16BE:
+  case ID3TextEncoding::UTF16BE:
   default:
     assert( false ); // not encountered to date, so left unwritten
     return std::string();
@@ -242,16 +167,16 @@ std::string Mp3TagData::GetComment(size_t i) const
 
   const auto* rawFrame = GetCommentFrame( i )->GetData();
   const auto* commentFrame = reinterpret_cast<const ID3v2CommentFrame*>( rawFrame );
-  assert( commentFrame->hdr.frameID[0] == 'C' );
+  assert( commentFrame->GetFrameID()[ 0 ] == 'C' ); // TODO IsCommentFrame
 
   std::string value;
-  switch( commentFrame->textEncoding )
+  switch( commentFrame->GetTextEncoding() )
   {
-  case kTextEncodingUTF8:
+  case ID3TextEncoding::UTF8:
     // not officially handled; only part of 2.4
     [[fallthrough]];
 
-  case kTextEncodingAnsi:
+  case ID3TextEncoding::ANSI:
   {
     auto textData = commentFrame->str.utf8;
 
@@ -264,7 +189,7 @@ std::string Mp3TagData::GetComment(size_t i) const
     value.assign( textData, charCount );
     break;
   }
-  case kTextEncodingUTF16:
+  case ID3TextEncoding::UTF16:
   {
     auto textData = commentFrame->str.unicode.utf16;
 
@@ -280,7 +205,7 @@ std::string Mp3TagData::GetComment(size_t i) const
     value = StringUtil::GetUtf8( unicode );
     break;
   }
-  case kTextEncodingUTF16BE:
+  case ID3TextEncoding::UTF16BE:
   default:
     assert( false ); // not encountered to date, so left unwritten
     break;
@@ -316,22 +241,16 @@ void Mp3TagData::SetText( Mp3FrameType frameType, const std::string& newStr )
   }
   Mp3TagData::Frame* pFrame = &( frames_[ framePos ] );
 
-  // Always create UTF8 text frames to avoid complications dealing with textEncoding byte,
-  // UTF16 BOM and so forth
-  auto sizeAlloc = sizeof( ID3v2FrameHdr ) + sizeof( ID3v2TextFrame::textEncoding ) + newStr.size();
+  // Create a text frame of the proper size
+  auto sizeAlloc = ID3v2TextFrame::ComputeFrameSize( newStr );
   pFrame->Allocate( sizeAlloc );
+
+  // Set the frame fields
+  std::string frameID = GetFrameID( frameType );
+  uint32_t frameSize = static_cast<uint32_t>( sizeAlloc - sizeof( ID3v2FrameHdr ) );
   ID3v2TextFrame* pTextFrame = reinterpret_cast<ID3v2TextFrame*>( pFrame->GetData() );
-
-  // Set the header fields
-  auto frameSize = sizeAlloc - sizeof( ID3v2FrameHdr );
-  SetFrameID( pTextFrame->hdr.frameID, frameType );
-  pTextFrame->hdr.size = WriteFrameSize( static_cast<uint32_t>(frameSize) );
-  pTextFrame->hdr.statusMessages = 0;
-  pTextFrame->hdr.formatDescription = 0;
-
-  // Set the text fields; null byte is not written
-  pTextFrame->textEncoding = kTextEncodingAnsi;
-  memcpy( pTextFrame->str.utf8, newStr.c_str(), newStr.size() );
+  pTextFrame->SetHeader( frameID, frameSize, fileHeader_.majorVersion );
+  pTextFrame->SetText( newStr );
   isDirty_ = true;
 }
 
@@ -359,27 +278,16 @@ void Mp3TagData::SetComment( size_t i, const std::string& newComment )
   FramePos framePos = commentFrames_[ i ];
   Mp3TagData::Frame* pFrame = &( frames_[framePos] );
 
-  // Create UTF8 comment frames for simplicity
-  auto sizeAlloc = sizeof( ID3v2FrameHdr ) + sizeof( ID3v2CommentFrame::textEncoding ) +
-                   sizeof( ID3v2CommentFrame::language ) + 
-                   sizeof( '\0' ) + // empty comment description
-                   newComment.size();
-        
+  // Create a comment frame of the proper size
+  auto sizeAlloc = ID3v2CommentFrame::ComputeFrameSize( newComment );
   pFrame->Allocate( sizeAlloc );
+
+  // Set the frame fields
+  uint32_t frameSize = static_cast<uint32_t>( sizeAlloc - sizeof( ID3v2FrameHdr ) );
+  std::string frameID = GetFrameID( Mp3FrameType::Comment );
   ID3v2CommentFrame* pCommentFrame = reinterpret_cast<ID3v2CommentFrame*>( pFrame->GetData() );
-
-  // Set the header fields
-  auto frameSize = sizeAlloc - sizeof( ID3v2FrameHdr );
-  SetFrameID( pCommentFrame->hdr.frameID, Mp3FrameType::Comment );
-  pCommentFrame->hdr.size = WriteFrameSize( static_cast<uint32_t>(frameSize) );
-  pCommentFrame->hdr.statusMessages = 0;
-  pCommentFrame->hdr.formatDescription = 0;
-
-  // Set the text fields; comment  description is empty
-  pCommentFrame->textEncoding = kTextEncodingAnsi;
-  memcpy( pCommentFrame->language, kEnglishLanguage, 3 );
-  *pCommentFrame->str.utf8 = '\0'; // empty comment description
-  memcpy( pCommentFrame->str.utf8 + sizeof('\0'), newComment.c_str(), newComment.size() );
+  pCommentFrame->SetHeader( frameID, frameSize, fileHeader_.majorVersion );
+  pCommentFrame->SetText( newComment );
   isDirty_ = true;
 }
 
@@ -424,7 +332,7 @@ bool Mp3TagData::Write()
                       kPaddingBytes : ( frameBuffer_.size() - frameSectionSize );
 
   // Write new id3v2 header size
-  fileHeader_.synchSafeSize = WriteID3Int<7>( static_cast<uint32_t>(frameSectionSize + padBytes) );
+  fileHeader_.syncSafeSize = WriteID3Int<7>( static_cast<uint32_t>(frameSectionSize + padBytes) );
   if( !mp3File.Write( &fileHeader_, sizeof( fileHeader_ ) ) )
     return false;
 
@@ -563,10 +471,11 @@ void Mp3TagData::ParseFrames()
 ///////////////////////////////////////////////////////////////////////////////
 //
 // Converts the frameSize value to the proper ID3 file format. Version 3
-// is just a big endian value. Other versions are synchSafe.
+// is just a big endian value. Other versions are syncSafe.
 
 uint32_t Mp3TagData::WriteFrameSize( uint32_t frameSize ) const
 {
+  // TODO need?
   return (fileHeader_.majorVersion == 3) ? WriteID3Int<8>( frameSize ) : 
                                            WriteID3Int<7>( frameSize );
 }
@@ -575,16 +484,11 @@ uint32_t Mp3TagData::WriteFrameSize( uint32_t frameSize ) const
 //
 // Extracts the frame size from the given frame
 
-uint32_t Mp3TagData::GetFrameSize( const uint8_t* rawFrame, uint8_t version ) // static
+uint32_t Mp3TagData::GetFrameSize( const uint8_t* rawFrame, uint8_t majorVersion ) // static
 {
   assert( rawFrame != nullptr );
   const auto* frameHeader = reinterpret_cast<const ID3v2FrameHdr*>( rawFrame );
-
-  // Version 3 frame sizes are stored in big endian
-  // Other version frame sizes are stored in synchSafe format
-  auto frameSize = ( version == 3 ) ? ReadID3Int<8>( frameHeader->size ) :
-                                      ReadID3Int<7>( frameHeader->size );
-  return frameSize;
+  return frameHeader->GetSize( majorVersion );
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -709,6 +613,50 @@ void Mp3TagData::DeleteCommentFrame( size_t i )
   if ( pos != commentFrames_.end() )
     commentFrames_.erase( pos );
   isDirty_ = true;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Stream frames as text
+
+std::ostream& PKIsensee::operator<<( std::ostream& out, const Mp3TagData& tagData )
+{
+  out << "Path: " << tagData.path_ << '\n';
+
+  const Mp3TagData::ID3v2FileHeader& hdr = tagData.fileHeader_;
+  out << "Id3: " << hdr.id3[ 0 ] << hdr.id3[ 1 ] << hdr.id3[ 2 ] << '\n';
+  out << "Version: " << std::dec << +hdr.majorVersion << '.' << +hdr.minorVersion << '\n';
+  out << "Flags: 0x" << std::hex << std::uppercase << +hdr.flags << '\n';
+  auto size = ( hdr.majorVersion == 3 ) ? ReadID3Int<8>( hdr.syncSafeSize ) :
+                                          ReadID3Int<7>( hdr.syncSafeSize );
+  out << "Size: " << std::dec << size << " (" << std::hex << std::uppercase << size << ")\n";
+  out << "Audio offset: " << std::dec << tagData.audioBufferOffset_ << '\n';
+
+  // Text frames
+  for( const auto& frame : tagData.frames_ )
+  {
+    if( frame.IsTextFrame() )
+    {
+      const auto* rawFrame = frame.GetData();
+      const auto* textFrame = reinterpret_cast<const ID3v2TextFrame*>( rawFrame );
+      out << "FrameID: " << textFrame->GetFrameID() << '\n';
+    }
+  }
+
+  // Comment frames
+
+  // Non-text and non-comment frames
+
+/*
+  std::vector<Frame>    frames_;      // list of all MP3 frames; typically <50
+
+  using FramePos = size_t;               // index into mFrames
+  std::vector<FramePos>  textFrames_;    // list of all text frames (subset of mFrames)
+  std::vector<FramePos>  commentFrames_; // list of all comment frames (subset of mFrames)
+  bool isDirty_ = false;
+  */
+
+  return out;
 }
 
 ///////////////////////////////////////////////////////////////////////////////

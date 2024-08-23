@@ -3,6 +3,7 @@
   <ItemGroup>
     <ClInclude Include="Mp3BaseTagData.h" />
     <ClInclude Include="Mp3TagData.h" />
+    <ClInclude Include="ID3v2Frames.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Mp3GenreList.cpp" />

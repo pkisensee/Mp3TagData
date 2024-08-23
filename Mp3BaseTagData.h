@@ -18,12 +18,11 @@
 #include <string>
 
 #include "..\frozen\unordered_map.h"
+#include "Id3v2Frames.h"
 #include "StrUtil.h"
 
 namespace PKIsensee
 {
-
-static constexpr size_t kFrameIDCharCount = 4;
 
 enum class Mp3FrameType
 {
@@ -95,24 +94,6 @@ inline Mp3FrameType& operator++( Mp3FrameType& frameType )
 
 constexpr size_t kMaxGenre = 125;
 extern const char* kStaticGenreList[ kMaxGenre + 1 ];
-
-///////////////////////////////////////////////////////////////////////////////
-//
-// Standard MP3 ID3v2 frame header
-//
-// See https://mutagen-specs.readthedocs.io/en/latest/id3/id3v2.3.0.html
-
-#pragma pack(push,1)
-struct ID3v2FrameHdr
-{
-  char     frameID[ kFrameIDCharCount ]; // e.g. "TALB"
-  uint32_t size;              // Version 3 sizes are regular ints; version 4+ sizes are synchSafe ints
-  uint8_t  statusMessages;    // Whether the frame can be altered
-  uint8_t  formatDescription; // Compression, encryption and grouping
-
-  // frame data follows here
-};
-#pragma pack(pop)
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -226,11 +207,7 @@ public:
   {
     assert( rawFrame != nullptr );
     const auto* frameHeader = reinterpret_cast<const ID3v2FrameHdr*>( rawFrame );
-    std::string frameID{ frameHeader->frameID[ 0 ],
-                         frameHeader->frameID[ 1 ],
-                         frameHeader->frameID[ 2 ],
-                         frameHeader->frameID[ 3 ] };
-    return frameID;
+    return frameHeader->GetFrameID();
   }
 
   ///////////////////////////////////////////////////////////////////////////////
@@ -272,6 +249,7 @@ public:
 
   static void SetFrameID( char* frameID, Mp3FrameType frameType )
   {
+    // TODO need?
     assert( frameID != nullptr );
     memcpy( frameID, GetFrameID( frameType ).c_str(), kFrameIDCharCount );
   }

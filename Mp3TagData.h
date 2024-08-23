@@ -182,6 +182,8 @@ private:
   void DeleteTextFrame( Mp3FrameType );
   void DeleteCommentFrame( size_t index );
 
+  friend std::ostream& operator<<( std::ostream&, const Mp3TagData& );
+
 private:
 
 #pragma pack(push,1)
@@ -192,7 +194,7 @@ private:
     uint8_t  majorVersion = 0;  // e.g. 2; never 0xFF
     uint8_t  minorVersion = 0;  // e.g. 3; never 0xFF
     uint8_t  flags = 0;         // values in Mp3TagData.cpp
-    uint32_t synchSafeSize = 0; // see id3 6.2, https://en.wikipedia.org/wiki/Synchsafe
+    uint32_t syncSafeSize = 0;  // see id3 6.2, https://en.wikipedia.org/wiki/Synchsafe
   };
 #pragma pack(pop)
 
