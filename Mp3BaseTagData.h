@@ -185,7 +185,7 @@ public:
   static bool IsTextFrame( Mp3FrameType frameType )
   {
     assert( frameType < Mp3FrameType::Max );
-    return kMp3FrameID.at( frameType )[ 0 ] == 'T';
+    return IsTextFrame( kMp3FrameID.at( frameType ) );
   }
 
   static bool IsTextFrame( const std::string& frameID )
@@ -197,6 +197,21 @@ public:
   {
     assert( frameID != nullptr );
     return *frameID == 'T';
+  }
+
+  ///////////////////////////////////////////////////////////////////////////////
+  //
+  // True if the indicated frame represents a text frame, e.g. "COMM"
+
+  static bool IsCommentFrame( const std::string& frameID )
+  {
+    return IsCommentFrame( frameID.c_str() );
+  }
+
+  static bool IsCommentFrame( const char* frameID )
+  {
+    assert( frameID != nullptr );
+    return *frameID == 'C';
   }
 
   ///////////////////////////////////////////////////////////////////////////////
@@ -241,17 +256,6 @@ public:
         return frameType;
     }
     return Mp3FrameType::None;
-  }
-
-  ///////////////////////////////////////////////////////////////////////////////
-  //
-  // Put the correct frameID at the given position
-
-  static void SetFrameID( char* frameID, Mp3FrameType frameType )
-  {
-    // TODO need?
-    assert( frameID != nullptr );
-    memcpy( frameID, GetFrameID( frameType ).c_str(), kFrameIDCharCount );
   }
 
 }; // class Mp3BaseTagData

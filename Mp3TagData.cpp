@@ -34,12 +34,6 @@ using namespace PKIsensee;
 namespace // anonymous
 {
 
-[[maybe_unused]] constexpr uint8_t kFlagUnsynchronized = ( 1 << 7 );
-[[maybe_unused]] constexpr uint8_t kFlagExtended       = ( 1 << 6 );
-[[maybe_unused]] constexpr uint8_t kFlagExperimental   = ( 1 << 5 );
-[[maybe_unused]] constexpr uint8_t kFlagFooterPresent  = ( 1 << 4 );
-[[maybe_unused]] constexpr uint8_t kFlagsRemaining = ( 0b00001111 ); // must be cleared
-
 constexpr size_t kInvalidFramePos = size_t( -1 );
 constexpr size_t kPaddingBytes = 2048u; // commonly used in MP3 tagging software
 
@@ -72,7 +66,7 @@ bool Mp3TagData::LoadTagData( const std::filesystem::path& path )
   if( !IsValidFileHeader() )
     return false;
 
-  auto frameSectionSize = ReadID3Int<7>( fileHeader_.syncSafeSize );
+  auto frameSectionSize = fileHeader_.GetSize();
   assert( frameSectionSize < ( 1024 * 1024 ) ); // ensure reasonable
   audioBufferOffset_ = sizeof( fileHeader_ ) + frameSectionSize;
 
@@ -110,42 +104,7 @@ std::string Mp3TagData::GetText( Mp3FrameType frameType ) const
   const auto* rawFrame = pFrame->GetData();
   const auto* textFrame = reinterpret_cast<const ID3v2TextFrame*>( rawFrame );
   assert( IsTextFrame( textFrame->GetFrameID() ) );
-  return textFrame->GetText( fileHeader_.majorVersion );
-
-  /*
-  std::string value;
-  switch( textFrame->GetTextEncoding() )
-  {
-  case ID3TextEncoding::UTF8:
-    // not officially handled; only part of 2.4 spec
-    [[fallthrough]];
-
-  case ID3TextEncoding::ANSI:
-  {
-    auto textData = textFrame->str_.utf8;
-    auto charCount = GetTextBytes( textData, rawFrame );
-    value.assign( textData, charCount );
-    break;
-  }
-  case ID3TextEncoding::UTF16:
-  {
-    auto textData = textFrame->str_.unicode.utf16;
-    auto charCount = GetTextBytes( textData, rawFrame ) / sizeof( wchar_t );
-    std::wstring unicode( textData, charCount );
-    value = StringUtil::GetUtf8( unicode );
-    break;
-  }
-  case ID3TextEncoding::UTF16BE:
-  default:
-    assert( false ); // not encountered to date, so left unwritten
-    return std::string();
-  }
-
-  // In some buggy frames, trailing null bytes may be included in the frame,
-  // so strip them out
-  StrUtil::ToTrimmedTrailing( value, std::string( { '\0' } ));
-  return value;
-  */
+  return textFrame->GetText( fileHeader_.GetMajorVersion() );
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -170,57 +129,8 @@ std::string Mp3TagData::GetComment(size_t i) const
 
   const auto* rawFrame = GetCommentFrame( i )->GetData();
   const auto* commentFrame = reinterpret_cast<const ID3v2CommentFrame*>( rawFrame );
-  assert( commentFrame->GetFrameID()[ 0 ] == 'C' ); // TODO IsCommentFrame
-
-  return commentFrame->GetText( fileHeader_.majorVersion );
-/*
-  std::string value;
-  switch( commentFrame->GetTextEncoding() )
-  {
-  case ID3TextEncoding::UTF8:
-    // not officially handled; only part of 2.4
-    [[fallthrough]];
-
-  case ID3TextEncoding::ANSI:
-  {
-    auto textData = commentFrame->str_.utf8_;
-
-    // Skip comment description
-    while( *textData++ )
-      ;
-
-    // Extract comment
-    auto charCount = GetTextBytes( textData, rawFrame );
-    value.assign( textData, charCount );
-    break;
-  }
-  case ID3TextEncoding::UTF16:
-  {
-    auto textData = commentFrame->str_.unicode_.utf16_;
-
-    // Skip comment description
-    while( *textData++ )
-      ;
-
-    // The primary comment text starts immediately after the byte order mark (BOM)
-    textData++;
-
-    auto charCount = GetTextBytes( textData, rawFrame ) / sizeof( wchar_t );
-    std::wstring unicode( textData, charCount );
-    value = StringUtil::GetUtf8( unicode );
-    break;
-  }
-  case ID3TextEncoding::UTF16BE:
-  default:
-    assert( false ); // not encountered to date, so left unwritten
-    break;
-  }
-
-  // In some buggy frames, trailing null bytes may be included in the frame size,
-  // so strip them out
-  StrUtil::ToTrimmedTrailing( value, std::string( { '\0' } ) );
-  return value;
-  */
+  assert( IsCommentFrame( commentFrame->GetFrameID() ) );
+  return commentFrame->GetText( fileHeader_.GetMajorVersion() );
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -248,14 +158,14 @@ void Mp3TagData::SetText( Mp3FrameType frameType, const std::string& newStr )
   Mp3TagData::Frame* pFrame = &( frames_[ framePos ] );
 
   // Create a text frame of the proper size
-  auto sizeAlloc = ID3v2TextFrame::ComputeFrameSize( newStr );
+  auto sizeAlloc = ID3v2TextFrame::GetFrameSize( newStr );
   pFrame->Allocate( sizeAlloc );
 
   // Set the frame fields
   std::string frameID = GetFrameID( frameType );
   uint32_t frameSize = static_cast<uint32_t>( sizeAlloc - sizeof( ID3v2FrameHdr ) );
   ID3v2TextFrame* pTextFrame = reinterpret_cast<ID3v2TextFrame*>( pFrame->GetData() );
-  pTextFrame->SetHeader( frameID, frameSize, fileHeader_.majorVersion );
+  pTextFrame->SetHeader( frameID, frameSize, fileHeader_.GetMajorVersion() );
   pTextFrame->SetText( newStr );
   isDirty_ = true;
 }
@@ -285,14 +195,14 @@ void Mp3TagData::SetComment( size_t i, const std::string& newComment )
   Mp3TagData::Frame* pFrame = &( frames_[framePos] );
 
   // Create a comment frame of the proper size
-  auto sizeAlloc = ID3v2CommentFrame::ComputeFrameSize( newComment );
+  auto sizeAlloc = ID3v2CommentFrame::GetFrameSize( newComment );
   pFrame->Allocate( sizeAlloc );
 
   // Set the frame fields
   uint32_t frameSize = static_cast<uint32_t>( sizeAlloc - sizeof( ID3v2FrameHdr ) );
   std::string frameID = GetFrameID( Mp3FrameType::Comment );
   ID3v2CommentFrame* pCommentFrame = reinterpret_cast<ID3v2CommentFrame*>( pFrame->GetData() );
-  pCommentFrame->SetHeader( frameID, frameSize, fileHeader_.majorVersion );
+  pCommentFrame->SetHeader( frameID, frameSize, fileHeader_.GetMajorVersion() );
   pCommentFrame->SetText( newComment );
   isDirty_ = true;
 }
@@ -320,7 +230,7 @@ bool Mp3TagData::Write()
   size_t frameSectionSize = 
     std::ranges::fold_left( frames_, size_t{}, [ fh = fileHeader_ ]( size_t sum, const Frame& frame )
     {
-      return sum + frame.GetWriteBytes( fh.majorVersion );
+      return sum + frame.GetWriteBytes( fh.GetMajorVersion() );
     } );
 
   File mp3File( path_ );
@@ -338,7 +248,7 @@ bool Mp3TagData::Write()
                       kPaddingBytes : ( frameBuffer_.size() - frameSectionSize );
 
   // Write new id3v2 header size
-  fileHeader_.syncSafeSize = WriteID3Int<7>( static_cast<uint32_t>(frameSectionSize + padBytes) );
+  fileHeader_.SetSize( static_cast<uint32_t>( frameSectionSize + padBytes ) );
   if( !mp3File.Write( &fileHeader_, sizeof( fileHeader_ ) ) )
     return false;
 
@@ -360,8 +270,8 @@ bool Mp3TagData::Write()
   // Write all frames except deleted ones
   for( const auto& frame : frames_ )
   {
-    if( frame.GetWriteBytes( fileHeader_.majorVersion ) )
-      verify( mp3File.Write( frame.GetData(), frame.GetWriteBytes( fileHeader_.majorVersion ) ) );
+    if( frame.GetWriteBytes( fileHeader_.GetMajorVersion() ) )
+      verify( mp3File.Write( frame.GetData(), frame.GetWriteBytes( fileHeader_.GetMajorVersion() ) ) );
   }
 
   // Pad with zeros
@@ -389,26 +299,24 @@ bool Mp3TagData::Write()
 bool Mp3TagData::IsValidFileHeader() const
 {
   // Validate header
-  std::string id3 = { fileHeader_.id3[ 0 ], 
-                      fileHeader_.id3[ 1 ], 
-                      fileHeader_.id3[ 2 ] };
-  if( id3 != kID3String )
+  if( fileHeader_.GetHeaderID() != kID3String )
   {
     PKLOG_WARN( "\nInvalid MP3 ID3v2 file %S; bad header\n", path_.c_str() );
     return false;
   }
-  if( fileHeader_.majorVersion < 3 || 
-      fileHeader_.majorVersion == 0xFF ||
-      fileHeader_.minorVersion == 0xFF )
+  if( fileHeader_.GetMajorVersion() < 3 ||
+      fileHeader_.GetMajorVersion() == 0xFF ||
+      fileHeader_.GetMinorVersion() == 0xFF )
   {
     PKLOG_WARN( "\nSong %S has obsolete v2 or v1 header; resave\n", path_.c_str() );
     return false;
   }
 
   // Validate flags
-  if( ( fileHeader_.flags & kFlagExtended ) ||
-      ( fileHeader_.flags & kFlagExperimental ) ||
-      ( fileHeader_.flags & kFlagsRemaining ) )
+  auto flags = fileHeader_.GetFlags();
+  if( ( flags & ID3v2FileHeader::kFlagExtended ) ||
+      ( flags & ID3v2FileHeader::kFlagExperimental ) ||
+      ( flags & ID3v2FileHeader::kFlagsRemaining ) )
   {
     PKLOG_WARN( "\nSong %S has invalid header flags; resave\n", path_.c_str() );
     return false;
@@ -437,7 +345,7 @@ bool Mp3TagData::ParseFrame( uint32_t& offset )
   Frame frame( rawFrame );
   frames_.emplace_back( frame );
 
-  offset += static_cast<uint32_t>(GetFrameBytes( rawFrame, fileHeader_.majorVersion ));
+  offset += static_cast<uint32_t>(GetFrameBytes( rawFrame, fileHeader_.GetMajorVersion() ));
   return true;
 }
 
@@ -482,8 +390,8 @@ void Mp3TagData::ParseFrames()
 uint32_t Mp3TagData::WriteFrameSize( uint32_t frameSize ) const
 {
   // TODO need?
-  return (fileHeader_.majorVersion == 3) ? WriteID3Int<8>( frameSize ) : 
-                                           WriteID3Int<7>( frameSize );
+  return (fileHeader_.GetMajorVersion() == 3) ? WriteID3Int<8>( frameSize ) :
+                                                WriteID3Int<7>( frameSize );
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -505,32 +413,6 @@ size_t Mp3TagData::GetFrameBytes( const uint8_t* rawFrame, uint8_t version ) // 
 {
   assert( rawFrame != nullptr );
   return sizeof( ID3v2FrameHdr ) + GetFrameSize( rawFrame, version );
-}
-
-///////////////////////////////////////////////////////////////////////////////
-//
-// Given raw frame pointer and start of text, return text size in bytes
-
-uint32_t Mp3TagData::GetTextBytes( const void* textStart, const uint8_t* rawFrame ) const
-{
-  //  rawFrame                   textStart (char* or wchar_t*)
-  //  |                          |
-  //  v                          v
-  // |<------------------------>|<-------------->|
-  // |                                           |
-  // |<--ID3v2FrameHdr-->|<-----frameSize------->|
-  // |                                           |
-  // |<----------offset-------->|<---textSize--->|
-
-  assert( rawFrame < textStart );
-  ptrdiff_t offset = reinterpret_cast<const uint8_t*>( textStart ) - rawFrame;
-  uint32_t offsetU32 = static_cast<uint32_t>( offset );
-
-  uint32_t frameSize = GetFrameSize( rawFrame, fileHeader_.majorVersion );
-  uint32_t textSize = sizeof( ID3v2FrameHdr ) + frameSize;
-  assert( offsetU32 <= textSize );
-  textSize -= offsetU32;
-  return textSize;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -629,13 +511,11 @@ std::ostream& PKIsensee::operator<<( std::ostream& out, const Mp3TagData& tagDat
 {
   out << "Path: " << tagData.path_ << '\n';
 
-  const Mp3TagData::ID3v2FileHeader& hdr = tagData.fileHeader_;
-  out << "Id3: " << hdr.id3[ 0 ] << hdr.id3[ 1 ] << hdr.id3[ 2 ] << '\n';
-  out << "Version: " << std::dec << +hdr.majorVersion << '.' << +hdr.minorVersion << '\n';
-  out << "Flags: 0x" << std::hex << std::uppercase << +hdr.flags << '\n';
-  auto size = ( hdr.majorVersion == 3 ) ? ReadID3Int<8>( hdr.syncSafeSize ) :
-                                          ReadID3Int<7>( hdr.syncSafeSize );
-  out << "Size: " << std::dec << size << " (" << std::hex << std::uppercase << size << ")\n";
+  const ID3v2FileHeader& hdr = tagData.fileHeader_;
+  out << "Id3: " << hdr.GetHeaderID() << '\n';
+  out << "Version: " << std::dec << +hdr.GetMajorVersion() << '.' << +hdr.GetMinorVersion() << '\n';
+  out << "Flags: 0x" << std::hex << std::uppercase << +hdr.GetFlags() << '\n';
+  out << "Size: " << std::dec << hdr.GetSize() << " (" << std::hex << std::uppercase << hdr.GetSize() << ")\n";
   out << "Audio offset: " << std::dec << tagData.audioBufferOffset_ << '\n';
 
   // Text frames

@@ -72,7 +72,6 @@ private:
   uint32_t WriteFrameSize( uint32_t frameSize ) const;
   static uint32_t GetFrameSize( const uint8_t* rawFrame, uint8_t version );
   static size_t GetFrameBytes( const uint8_t* rawFrame, uint8_t version );
-  uint32_t GetTextBytes( const void* textStart, const uint8_t* rawFrame ) const;
 
   ///////////////////////////////////////////////////////////////////////////
   //
@@ -185,18 +184,6 @@ private:
   friend std::ostream& operator<<( std::ostream&, const Mp3TagData& );
 
 private:
-
-#pragma pack(push,1)
-  struct ID3v2FileHeader // MP3 File header structure
-  {
-    // https://mutagen-specs.readthedocs.io/en/latest/id3/id3v2.4.0-structure.html#id3v2-header
-    char     id3[ 3 ] = {};     // 'ID3'
-    uint8_t  majorVersion = 0;  // e.g. 2; never 0xFF
-    uint8_t  minorVersion = 0;  // e.g. 3; never 0xFF
-    uint8_t  flags = 0;         // values in Mp3TagData.cpp
-    uint32_t syncSafeSize = 0;  // see id3 6.2, https://en.wikipedia.org/wiki/Synchsafe
-  };
-#pragma pack(pop)
 
   std::filesystem::path path_;
   ID3v2FileHeader       fileHeader_;
