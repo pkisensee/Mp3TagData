@@ -12,14 +12,17 @@
 //  This software is provided "as is" and without any express or implied
 //  warranties.
 //
-//  ID3 frame structures
+//  ID3 frame structures. Intended to be used as "casted-to" objects, e.g.
+//  ID3v2TextFrame* pTextFrame = reinterpret_cast<ID3v2TextFrame*>( pFrame->GetData() );
 // 
 ///////////////////////////////////////////////////////////////////////////////
 
 #pragma once
+#include <cassert>
 #include <cstdint>
 #include <string>
 
+#include "StrUtil.h"
 #include "Util.h"
 
 namespace // anonymous
@@ -28,6 +31,9 @@ namespace // anonymous
 static constexpr const char* kID3String = "ID3";
 static constexpr const char* kEnglishLanguage = "eng";
 static constexpr size_t      kFrameIDCharCount = 4;
+static constexpr uint8_t     kByteOrderMark0 = 0xFE;
+static constexpr uint8_t     kByteOrderMark1 = 0xFF;
+static constexpr uint16_t    kByteOrderMark = 0xFEFF;
 
 } // anonymous
 
@@ -80,6 +86,7 @@ class ID3v2FrameHdr
 {
 private:
 
+  // Order and size must not be modified
   char     frameID_[ kFrameIDCharCount ]; // e.g. "TALB"
   uint32_t syncSafeSize_;      // V3 sizes are regular ints; V4+ sizes are syncSafe ints
   uint8_t  statusMessages_;    // Whether the frame can be altered
@@ -98,7 +105,7 @@ public:
   {
     // Version 3: big endian value. Other versions are syncSafe.
     return ( majorVersion == 3 ) ? ReadID3Int<8>( syncSafeSize_ ) :
-      ReadID3Int<7>( syncSafeSize_ );
+                                   ReadID3Int<7>( syncSafeSize_ );
   }
 
   void SetHeader( const std::string& frameID, uint32_t newFrameSize, uint8_t majorVersion )
@@ -106,11 +113,11 @@ public:
     assert( frameID.size() == kFrameIDCharCount );
     memcpy( frameID_, frameID.data(), kFrameIDCharCount );
 
-    // Version 3: big endian value. Other versions are syncSafe.
+    // Version 3: big endian value. Other versions are syncSafe values.
     syncSafeSize_ = ( majorVersion == 3 ) ? WriteID3Int<8>( newFrameSize ) :
                                             WriteID3Int<7>( newFrameSize );
 
-    // not used by this implementation
+    // Unused in current implementation
     statusMessages_ = 0;
     formatDescription_ = 0;
   }
@@ -120,12 +127,11 @@ public:
     return statusMessages_ & kStatusReadOnly;
   }
 
-  // None of these currently used, so unimplemented
+  // None of this functionality currently needed, so unimplemented
   // See https://mutagen-specs.readthedocs.io/en/latest/id3/id3v2.3.0.html
   //
   // bool PreserveFrameOnTagAlter() const
   // bool PreserveFrameOnFileAlter() const
-  // bool IsReadOnly() const
   // bool IsCompressed() const
   // bool IsEncrypted() const
   // bool IsGrouped() const
@@ -134,24 +140,33 @@ public:
 
 };
 
-// Strings can be encoded in different fashions; this struct disambiguates
+///////////////////////////////////////////////////////////////////////////////
+//
+// Standard MP3 string header
+// See https://mutagen-specs.readthedocs.io/en/latest/id3/id3v2.3.0.html
+//
+// Strings can be encoded in different fashions; this class disambiguates
 // https://mutagen-specs.readthedocs.io/en/latest/id3/id3v2.2.html#id3v2-frames-overview
 
-class ID3v2String // TODO member functions
+class ID3v2String
 {
 public: // TODO private
 
+  // Order and size must not be modified
   union {
     // textEncoding == ANSI OR UTF8
-    char utf8[ 1 ];        // string start
+    char utf8_[ 1 ];        // string start
 
     // textEncoding == UTF16 OR UTF16BE
     struct Unicode
     {
-      uint8_t  bom[ 2 ] = { 0xFE, 0xFF };
-      wchar_t  utf16[ 1 ]; // string start
-    } unicode;
+      uint8_t  bom_[ 2 ] = { kByteOrderMark0, kByteOrderMark1 };
+      wchar_t  utf16_[ 1 ]; // string start
+    } unicode_;
   };
+
+  friend class ID3v2TextFrame;
+  friend class ID3v2CommentFrame;
 
 public:
 
@@ -159,28 +174,44 @@ public:
 
   void SetText( const std::string& newText )
   {
-    // assumes sufficient memory is allocated for the ID3V2String buffer;
-    // not null terminated
-    memcpy( utf8, newText.c_str(), newText.size() );
+    // Assumes sufficient memory allocated for ID3V2String buffer;
+    // ID3 strings are not null terminated, hence memcpy
+    memcpy( utf8_, newText.c_str(), newText.size() );
   }
 
   void SetText( const std::wstring& newText )
   {
-    // assumes sufficient memory is allocated for the ID3V2String buffer
-    unicode.bom[ 0 ] = 0xFE;
-    unicode.bom[ 1 ] = 0xFF;
-    // not null terminated
-    memcpy( unicode.utf16, newText.c_str(), newText.size() * sizeof( wchar_t ) );
+    // Assumes sufficient memory is allocated for the ID3V2String buffer
+    unicode_.bom_[ 0 ] = kByteOrderMark0;
+    unicode_.bom_[ 1 ] = kByteOrderMark1;
+
+    // ID3 strings are not null terminated, hence memcpy
+    memcpy( unicode_.utf16_, newText.c_str(), newText.size() * sizeof( wchar_t ) );
   }
+
+  std::string GetText( size_t charCount ) const
+  {
+    return std::string( utf8_, charCount );
+  }
+
+  std::wstring GetTextWide( size_t charCount ) const
+  {
+    return std::wstring( unicode_.utf16_, charCount );
+  }
+
 };
 
-// https://mutagen-specs.readthedocs.io/en/latest/id3/id3v2.2.html#text-information-frames
+///////////////////////////////////////////////////////////////////////////////
+//
+// Standard MP3 text frame header
+// See https://mutagen-specs.readthedocs.io/en/latest/id3/id3v2.2.html#text-information-frames
+
 class ID3v2TextFrame : public ID3v2FrameHdr
 {
 private:
 
+  // Order and size must not be modified
   uint8_t       textEncoding_; // see TextEncoding IDs above
-public: // TODO remove
   ID3v2String   str_;
 
 public:
@@ -192,6 +223,37 @@ public:
     assert( textEncoding_ >= 0 );
     assert( textEncoding_ <= static_cast<uint8_t>( ID3TextEncoding::Max ) );
     return static_cast<ID3TextEncoding>( textEncoding_ );
+  }
+
+  bool IsWideString() const
+  {
+    auto textEncoding = GetTextEncoding();
+    return ( textEncoding == ID3TextEncoding::UTF16 ) || 
+           ( textEncoding == ID3TextEncoding::UTF16BE );
+  }
+
+  std::string GetText( uint8_t majorVersion ) const
+  {
+    // Determine size of string
+    auto byteCount = GetTextBytes( majorVersion );
+
+    // Read data; current implementation always returns std::string for simplicity
+    std::string value;
+    if( IsWideString() )
+    {
+      assert( byteCount % 2 == 0 );
+      auto charCount = byteCount / sizeof( wchar_t );
+      std::wstring unicode = str_.GetTextWide( charCount );
+      value = StringUtil::GetUtf8( unicode );
+    }
+    else
+    {
+      auto charCount = byteCount / sizeof( char );
+      value = str_.GetText( charCount );
+    }
+    // In some buggy frames, trailing null bytes may be included, so strip them out
+    StrUtil::ToTrimmedTrailing( value, std::string( { '\0' } ) );
+    return value;
   }
 
   static uint32_t ComputeFrameSize( const std::string& newText )
@@ -208,18 +270,52 @@ public:
   void SetText( const std::string& newText )
   {
     textEncoding_ = static_cast<uint8_t>( ID3TextEncoding::ANSI );
-    memcpy( str_.utf8, newText.c_str(), newText.size() ); // TODO add to ID3v2String
+    str_.SetText( newText );
   }
+
+private:
+
+  uint32_t GetTextBytes( uint8_t majorVersion ) const // TODO merge with other GetTextBytes
+  {
+    //  rawFrame                   textStart
+    //  |                          |
+    //  v                          v
+    // |<------------------------>|<-------------->|
+    // |                                           |
+    // |<--ID3v2FrameHdr-->|<-----frameSize------->|
+    // |                                           |
+    // |<----------offset-------->|<--textBytes--->|
+
+    auto rawFrame = reinterpret_cast<const uint8_t*>( this );
+    auto wideStrStart   = reinterpret_cast<const uint8_t*>( str_.unicode_.utf16_ );
+    auto narrowStrStart = reinterpret_cast<const uint8_t*>( str_.utf8_ );
+    auto textStart = IsWideString() ? wideStrStart : narrowStrStart;
+    assert( rawFrame < textStart );
+    ptrdiff_t offset = textStart - rawFrame;
+    uint32_t offsetU32 = static_cast<uint32_t>( offset );
+
+    uint32_t frameSize = GetSize( majorVersion );
+    uint32_t textBytes = sizeof( ID3v2FrameHdr ) + frameSize;
+    assert( offsetU32 <= textBytes );
+    textBytes -= offsetU32;
+    return textBytes;
+  }
+
 };
 
-// https://mutagen-specs.readthedocs.io/en/latest/id3/id3v2.2.html#comments
-struct ID3v2CommentFrame : public ID3v2FrameHdr // 'COMM' header
+///////////////////////////////////////////////////////////////////////////////
+//
+// Standard MP3 comment frame header
+// See https://mutagen-specs.readthedocs.io/en/latest/id3/id3v2.2.html#comments
+
+class ID3v2CommentFrame : public ID3v2FrameHdr // 'COMM' header
 {
 private:
+  // Order and size must not be modified
   uint8_t       textEncoding_; // see TextEncoding IDs above
 public:
-  char          language[ 3 ]; // e.g. "eng"
-  ID3v2String   str;
+  char          language_[ 3 ]; // e.g. "eng"
+  ID3v2String   str_;
 
 public:
 
@@ -230,6 +326,59 @@ public:
     assert( textEncoding_ >= 0 );
     assert( textEncoding_ <= static_cast<uint8_t>( ID3TextEncoding::Max ) );
     return static_cast< ID3TextEncoding >( textEncoding_ );
+  }
+
+  bool IsWideString() const
+  {
+    auto textEncoding = GetTextEncoding();
+    return ( textEncoding == ID3TextEncoding::UTF16 ) ||
+           ( textEncoding == ID3TextEncoding::UTF16BE );
+  }
+
+  std::string GetText( uint8_t majorVersion ) const
+  {
+    // Determine size of string
+    auto byteCount = GetTextBytes( majorVersion );
+
+    // Read data; current implementation always returns std::string for simplicity.
+    // Comment is made up of description text, then comment text. The separator is a
+    // null byte.
+    std::string value;
+    if( IsWideString() )
+    {
+      assert( byteCount % 2 == 0 );
+      auto charCount = byteCount / sizeof( wchar_t );
+      std::wstring descPlusComment = str_.GetTextWide( charCount );
+
+      // Skip comment description
+      auto start = std::begin( descPlusComment );
+      auto end = start + static_cast<signed>( charCount );
+      for( ; *start++; )
+        ;
+
+      // Skip BOM
+      assert( *start == kByteOrderMark );
+      start++;
+
+      value = StringUtil::GetUtf8( std::wstring( start, end ) ); // comment text
+    }
+    else
+    {
+      auto charCount = byteCount / sizeof( char );
+      std::string descPlusComment = str_.GetText( charCount );
+
+      // Skip comment description
+      auto start = std::begin( descPlusComment );
+      auto end = start + static_cast<signed>( charCount );
+      for( ; *start++; )
+        ;
+
+      value.assign( start, end ); // comment text
+    }
+
+    // In some buggy frames, trailing null bytes may be included, so strip them out
+    StrUtil::ToTrimmedTrailing( value, std::string( { '\0' } ) );
+    return value;
   }
 
   static uint32_t ComputeFrameSize( const std::string& newComment )
@@ -247,9 +396,37 @@ public:
   void SetText( const std::string& newText )
   {
     textEncoding_ = static_cast<uint8_t>( ID3TextEncoding::ANSI );
-    memcpy( language, kEnglishLanguage, 3 );
-    *str.utf8 = '\0'; // empty description; add new param if needed
-    memcpy( str.utf8 + sizeof( '\0' ), newText.c_str(), newText.size() );
+    memcpy( language_, kEnglishLanguage, 3 );
+    *str_.utf8_ = '\0'; // empty description; add new param if needed
+    memcpy( str_.utf8_ + sizeof( '\0' ), newText.c_str(), newText.size() );
+  }
+
+private:
+
+  uint32_t GetTextBytes( uint8_t majorVersion ) const // TODO merge with other GetTextBytes
+  {
+    //  rawFrame                   textStart
+    //  |                          |
+    //  v                          v
+    // |<------------------------>|<-------------->|
+    // |                                           |
+    // |<--ID3v2FrameHdr-->|<-----frameSize------->|
+    // |                                           |
+    // |<----------offset-------->|<--textBytes--->|
+
+    auto rawFrame = reinterpret_cast<const uint8_t*>( this );
+    auto wideStrStart = reinterpret_cast<const uint8_t*>( str_.unicode_.utf16_ );
+    auto narrowStrStart = reinterpret_cast<const uint8_t*>( str_.utf8_ );
+    auto textStart = IsWideString() ? wideStrStart : narrowStrStart;
+    assert( rawFrame < textStart );
+    ptrdiff_t offset = textStart - rawFrame;
+    uint32_t offsetU32 = static_cast<uint32_t>( offset );
+
+    uint32_t frameSize = GetSize( majorVersion );
+    uint32_t textBytes = sizeof( ID3v2FrameHdr ) + frameSize;
+    assert( offsetU32 <= textBytes );
+    textBytes -= offsetU32;
+    return textBytes;
   }
 
 };

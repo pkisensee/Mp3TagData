@@ -110,7 +110,9 @@ std::string Mp3TagData::GetText( Mp3FrameType frameType ) const
   const auto* rawFrame = pFrame->GetData();
   const auto* textFrame = reinterpret_cast<const ID3v2TextFrame*>( rawFrame );
   assert( IsTextFrame( textFrame->GetFrameID() ) );
+  return textFrame->GetText( fileHeader_.majorVersion );
 
+  /*
   std::string value;
   switch( textFrame->GetTextEncoding() )
   {
@@ -143,6 +145,7 @@ std::string Mp3TagData::GetText( Mp3FrameType frameType ) const
   // so strip them out
   StrUtil::ToTrimmedTrailing( value, std::string( { '\0' } ));
   return value;
+  */
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -169,6 +172,8 @@ std::string Mp3TagData::GetComment(size_t i) const
   const auto* commentFrame = reinterpret_cast<const ID3v2CommentFrame*>( rawFrame );
   assert( commentFrame->GetFrameID()[ 0 ] == 'C' ); // TODO IsCommentFrame
 
+  return commentFrame->GetText( fileHeader_.majorVersion );
+/*
   std::string value;
   switch( commentFrame->GetTextEncoding() )
   {
@@ -178,7 +183,7 @@ std::string Mp3TagData::GetComment(size_t i) const
 
   case ID3TextEncoding::ANSI:
   {
-    auto textData = commentFrame->str.utf8;
+    auto textData = commentFrame->str_.utf8_;
 
     // Skip comment description
     while( *textData++ )
@@ -191,7 +196,7 @@ std::string Mp3TagData::GetComment(size_t i) const
   }
   case ID3TextEncoding::UTF16:
   {
-    auto textData = commentFrame->str.unicode.utf16;
+    auto textData = commentFrame->str_.unicode_.utf16_;
 
     // Skip comment description
     while( *textData++ )
@@ -215,6 +220,7 @@ std::string Mp3TagData::GetComment(size_t i) const
   // so strip them out
   StrUtil::ToTrimmedTrailing( value, std::string( { '\0' } ) );
   return value;
+  */
 }
 
 ///////////////////////////////////////////////////////////////////////////////
