@@ -69,7 +69,6 @@ private:
   bool IsValidFileHeader() const;
   bool ParseFrame( uint32_t& offset );
   void ParseFrames();
-  uint32_t WriteFrameSize( uint32_t frameSize ) const;
   static uint32_t GetFrameSize( const uint8_t* rawFrame, uint8_t version );
   static size_t GetFrameBytes( const uint8_t* rawFrame, uint8_t version );
 

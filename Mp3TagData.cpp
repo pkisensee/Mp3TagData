@@ -384,18 +384,6 @@ void Mp3TagData::ParseFrames()
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// Converts the frameSize value to the proper ID3 file format. Version 3
-// is just a big endian value. Other versions are syncSafe.
-
-uint32_t Mp3TagData::WriteFrameSize( uint32_t frameSize ) const
-{
-  // TODO need?
-  return (fileHeader_.GetMajorVersion() == 3) ? WriteID3Int<8>( frameSize ) :
-                                                WriteID3Int<7>( frameSize );
-}
-
-///////////////////////////////////////////////////////////////////////////////
-//
 // Extracts the frame size from the given frame
 
 uint32_t Mp3TagData::GetFrameSize( const uint8_t* rawFrame, uint8_t majorVersion ) // static
