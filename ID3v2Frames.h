@@ -20,6 +20,7 @@
 #pragma once
 #include <cassert>
 #include <cstdint>
+#include <span>
 #include <string>
 
 #include "StrUtil.h"
@@ -34,6 +35,9 @@ static constexpr size_t      kFrameIDCharCount = 4;
 static constexpr uint16_t    kByteOrderMark = 0xFEFF;
 static constexpr uint8_t     kByteOrderMark0 = 0xFE;
 static constexpr uint8_t     kByteOrderMark1 = 0xFF;
+
+// syncSafeSize: V3: plain old big endian value, V4+: syncSafe integer
+static constexpr uint8_t     kMajorVersionWith8BitSize = 3;
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -246,8 +250,8 @@ public:
   uint32_t GetSize( uint8_t majorVersion ) const
   {
     // Version 3: big endian value. Other versions are syncSafe.
-    return ( majorVersion == 3 ) ? ReadID3Int<8>( syncSafeSize_ ) :
-                                   ReadID3Int<7>( syncSafeSize_ );
+    return ( majorVersion == kMajorVersionWith8BitSize ) ? ReadID3Int<8>( syncSafeSize_ ) :
+                                                           ReadID3Int<7>( syncSafeSize_ );
   }
 
   void SetHeader( const std::string& frameID, uint32_t newFrameSize, uint8_t majorVersion )
@@ -256,8 +260,8 @@ public:
     memcpy( frameID_, frameID.data(), kFrameIDCharCount );
 
     // Version 3: big endian value. Other versions are syncSafe values.
-    syncSafeSize_ = ( majorVersion == 3 ) ? WriteID3Int<8>( newFrameSize ) :
-                                            WriteID3Int<7>( newFrameSize );
+    syncSafeSize_ = ( majorVersion == kMajorVersionWith8BitSize ) ? WriteID3Int<8>( newFrameSize ) :
+                                                                    WriteID3Int<7>( newFrameSize );
 
     // Unused in current implementation
     statusMessages_ = 0;
@@ -300,7 +304,8 @@ public:
 
     uint32_t frameSize = GetSize( majorVersion );
     uint32_t textBytes = sizeof( ID3v2FrameHdr ) + frameSize;
-    assert( offsetU32 <= textBytes );
+    if( offsetU32 > textBytes )
+      return 0u; // malformed frame; no text possible
     textBytes -= offsetU32;
     return textBytes;
   }
@@ -487,6 +492,68 @@ public:
     memcpy( language_, kEnglishLanguage, 3 );
     *str_.utf8_ = '\0'; // empty description; add new param if needed
     memcpy( str_.utf8_ + sizeof( '\0' ), newText.c_str(), newText.size() );
+  }
+};
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// MP3 private frame header
+// 
+// See https://mutagen-specs.readthedocs.io/en/latest/id3/id3v2.3.0.html
+
+class ID3v2PrivateFrame : public ID3v2FrameHdr
+{
+private:
+
+#pragma pack(push,1) // Essential for strict binary layout of the ID3 file format
+  // Order and size must not be modified
+  char str_[ 1 ];     // null terminated
+  // Followed by a binary blob
+#pragma pack(pop)
+
+public:
+
+  ID3v2PrivateFrame() = delete; // only used as a casted-to object
+
+  std::string GetText() const
+  {
+    uint32_t maxFrameSize = GetSize( kMajorVersionWith8BitSize );
+    uint32_t charCount = 0u;
+    std::string value;
+    const char* s = str_;
+    for( ; *s != '\0'; ++s, ++charCount )
+    {
+      // Safety check
+      if( charCount == maxFrameSize )
+      {
+        // Failure indicates malformed frame
+        assert( charCount < maxFrameSize );
+        break;
+      }
+      value.push_back( *s );
+    }
+    return value;
+  }
+
+  std::span<const uint8_t> GetData( uint8_t majorVersion ) const
+  {
+    //  rawFrame                           blobStart
+    //  |                                  |
+    //  v                                  v
+    // |<-------------------------------->|<--------------->|
+    // |                                                    |
+    // |<--ID3v2FrameHdr-->|<---string--->|<-----blob------>|
+    // |                                                    |
+    // |                   |<----------frameSize----------->|
+    // |                                                    |
+    // |                   |<--strBytes-->|<---blobBytes--->|
+
+    uint32_t frameSize = GetSize( majorVersion );
+    std::string str = GetText();
+    size_t strBytes = str.size() + sizeof( '\0' );
+    size_t blobBytes = static_cast<size_t>( frameSize - strBytes );
+    const uint8_t* blobStart = reinterpret_cast<const uint8_t*>( str_ ) + strBytes;
+    return std::span{ blobStart, blobBytes };
   }
 
 };

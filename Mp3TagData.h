@@ -96,6 +96,8 @@ private:
     FrameBuf    newFrame;
 
     static constexpr size_t kFlaggedForDelete = 1;
+    static constexpr const char* kFlaggedForDeleteTag = "DEL ";
+    static constexpr const char* kPrivateFrameID = "PRIV";
 
   public:
     Frame() noexcept
@@ -129,6 +131,18 @@ private:
       return newFrame.data();
     }
 
+    std::string GetFrameID() const
+    {
+      const char* str = nullptr;
+      switch( newFrame.size() )
+      {
+      case 0:                 str = reinterpret_cast<const char*>( rawFrame ); break;
+      case kFlaggedForDelete: str = kFlaggedForDeleteTag; break;
+      default:                str = reinterpret_cast<const char*>( newFrame.data() ); break;
+      }
+      return std::string{ str[ 0 ], str[ 1 ], str[ 2 ], str[ 3 ] };
+    }
+
     bool IsTextFrame() const // all ID3 text frames start w/ T
     {
       return ( *GetData() == 'T' );
@@ -136,12 +150,17 @@ private:
 
     bool IsFrameID( Mp3FrameType frameType ) const
     {
-      return ( memcmp( GetData(), GetFrameID(frameType).c_str(), kFrameIDCharCount ) == 0 );
+      return this->GetFrameID() == Mp3BaseTagData::GetFrameID( frameType );
     }
 
     bool IsCommentFrame() const
     {
       return IsFrameID( Mp3FrameType::Comment );
+    }
+
+    bool IsPrivateFrame() const
+    {
+      return this->GetFrameID() == kPrivateFrameID;
     }
 
     void Allocate( size_t size ) // prepare newFrame to receive data

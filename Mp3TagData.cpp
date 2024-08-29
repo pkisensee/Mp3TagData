@@ -505,6 +505,44 @@ void Mp3TagData::DeleteCommentFrame( size_t i )
 
 ///////////////////////////////////////////////////////////////////////////////
 //
+// Stream helpers
+
+std::string PrintEncoding( ID3TextEncoding encoding )
+{
+  std::ostringstream oss;
+  oss << "Enc:" << static_cast<int>( encoding ) << "<";
+  switch( encoding )
+  {
+  case ID3TextEncoding::ANSI:    oss << "ANSI";    break;
+  case ID3TextEncoding::UTF16:   oss << "UTF16";   break;
+  case ID3TextEncoding::UTF16BE: oss << "UTF16BE"; break;
+  case ID3TextEncoding::UTF8:    oss << "UTF8";    break;
+  default: break;
+  }
+  oss << '>';
+  return oss.str();
+}
+
+std::string PrintText( const std::string& text )
+{
+  std::ostringstream oss;
+  oss << "Txt:\"" << text << "\"[" << text.size() << ']';
+  return oss.str();
+}
+
+std::string PrintBlob( const std::span<const uint8_t>& blob )
+{
+  std::ostringstream oss;
+  oss << "Dta:";
+  oss << std::hex;
+  for( auto u : blob )
+    oss << std::uppercase << std::setfill( '0' ) << std::setw( 2 ) << std::right << +u << ' ';
+  oss << std::dec << "[" << blob.size() << "]";
+  return oss.str();
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
 // Stream frames as text
 
 std::ostream& PKIsensee::operator<<( std::ostream& out, const Mp3TagData& tagData )
@@ -514,34 +552,62 @@ std::ostream& PKIsensee::operator<<( std::ostream& out, const Mp3TagData& tagDat
   const ID3v2FileHeader& hdr = tagData.fileHeader_;
   out << "Id3: " << hdr.GetHeaderID() << '\n';
   out << "Version: " << std::dec << +hdr.GetMajorVersion() << '.' << +hdr.GetMinorVersion() << '\n';
-  out << "Flags: 0x" << std::hex << std::uppercase << +hdr.GetFlags() << '\n';
-  out << "Size: " << std::dec << hdr.GetSize() << " (" << std::hex << std::uppercase << hdr.GetSize() << ")\n";
-  out << "Audio offset: " << std::dec << tagData.audioBufferOffset_ << '\n';
+  out << "Flags: 0x" << std::hex << std::uppercase << +hdr.GetFlags() << std::dec << '\n';
+  out << "Size: " << hdr.GetSize() << " (" << std::hex << std::uppercase << hdr.GetSize() << std::dec << ")\n";
+  out << "Audio offset: " << tagData.audioBufferOffset_ << '\n';
 
-  // Text frames
+  // Build sorted list of frames
+  std::vector< const Mp3TagData::Frame* > frames;
   for( const auto& frame : tagData.frames_ )
+    frames.push_back( &frame );
+
+  auto sorter = []( const Mp3TagData::Frame* lhs, const Mp3TagData::Frame* rhs ) {
+    // private frames first, comments last
+    if( lhs->IsPrivateFrame() )
+      return true;
+    if( rhs->IsPrivateFrame() )
+      return false;
+    if( lhs->IsCommentFrame() )
+      return false;
+    if( rhs->IsCommentFrame() )
+      return true;
+    // text frames by ID
+    if( lhs->IsTextFrame() && rhs->IsTextFrame() )
+      return lhs->GetFrameID() < rhs->GetFrameID();
+    return true;
+    };
+  std::ranges::sort( frames, sorter );
+
+  for( const auto& framePtr : frames )
   {
+    const Mp3TagData::Frame& frame = *framePtr;
+    out << "ID: " << frame.GetFrameID();
+    const auto* rawFrame = frame.GetData();
+    const auto* id3Frame = reinterpret_cast<const ID3v2FrameHdr*>( rawFrame );
+    out << " FrmSiz:" << id3Frame->GetSize( hdr.GetMajorVersion() ) << ' ';
     if( frame.IsTextFrame() )
     {
-      const auto* rawFrame = frame.GetData();
       const auto* textFrame = reinterpret_cast<const ID3v2TextFrame*>( rawFrame );
-      out << "FrameID: " << textFrame->GetFrameID() << '\n';
+      out << PrintEncoding( textFrame->GetTextEncoding() ) << ' ';
+      out << PrintText( textFrame->GetText( hdr.GetMajorVersion() ) ) << '\n';
+    }
+    else if( frame.IsCommentFrame() )
+    {
+      const auto* commFrame = reinterpret_cast<const ID3v2CommentFrame*>( rawFrame );
+      out << PrintEncoding( commFrame->GetTextEncoding() ) << ' ';
+      out << PrintText( commFrame->GetText( hdr.GetMajorVersion() ) ) << '\n';
+    }
+    else if ( frame.IsPrivateFrame() )
+    {
+      const auto* privFrame = reinterpret_cast<const ID3v2PrivateFrame*>( rawFrame );
+      out << PrintText( privFrame->GetText() ) << ' ';
+      out << PrintBlob( privFrame->GetData( hdr.GetMajorVersion() ) ) << '\n';
+    }
+    else // some other frame type
+    {
+      out << '\n';
     }
   }
-
-  // Comment frames
-
-  // Non-text and non-comment frames
-
-/*
-  std::vector<Frame>    frames_;      // list of all MP3 frames; typically <50
-
-  using FramePos = size_t;               // index into mFrames
-  std::vector<FramePos>  textFrames_;    // list of all text frames (subset of mFrames)
-  std::vector<FramePos>  commentFrames_; // list of all comment frames (subset of mFrames)
-  bool isDirty_ = false;
-  */
-
   return out;
 }
 
