@@ -67,10 +67,12 @@ public:
 private:
 
   bool IsValidFileHeader() const;
-  bool ParseFrame( uint32_t& offset );
-  void ParseFrames();
+  bool ParseID3Frame( uint32_t& offset );
+  void ParseID3Frames();
+  bool ParseAPETag( uint32_t& offset );
+  void ParseAPETags();
   static uint32_t GetFrameSize( const uint8_t* rawFrame, uint8_t version );
-  static size_t GetFrameBytes( const uint8_t* rawFrame, uint8_t version );
+  static uint32_t GetFrameBytes( const uint8_t* rawFrame, uint8_t version );
 
   ///////////////////////////////////////////////////////////////////////////
   //
@@ -85,7 +87,7 @@ private:
   //
   // Safe to cast rawFrame or newFrame.data() to ID3v2FrameHdr*
 
-  struct Frame
+  struct ID3Frame
   {
   private:
     using RawFramePtr = const uint8_t*;
@@ -94,24 +96,24 @@ private:
     RawFramePtr rawFrame = nullptr;
     FrameBuf    newFrame;
 
-    static constexpr size_t kFlaggedForDelete = 1;
+    static constexpr uint32_t kFlaggedForDelete = 1;
     static constexpr const char* kFlaggedForDeleteTag = "DEL ";
     static constexpr const char* kPrivateFrameID = "PRIV";
 
   public:
-    Frame() noexcept
+    ID3Frame() noexcept
     {
     }
 
-    Frame( RawFramePtr f ) noexcept
+    ID3Frame( RawFramePtr f ) noexcept
       : rawFrame( f )
     {
     }
 
-    Frame( const Frame& ) = default; // may allocate; can't be noexcept
-    Frame& operator=( const Frame& ) noexcept = delete;
-    Frame( Frame&& ) noexcept = default;
-    Frame& operator=( Frame&& ) noexcept = default;
+    ID3Frame( const ID3Frame& ) = default; // may allocate; can't be noexcept
+    ID3Frame& operator=( const ID3Frame& ) noexcept = delete;
+    ID3Frame( ID3Frame&& ) noexcept = default;
+    ID3Frame& operator=( ID3Frame&& ) noexcept = default;
 
     const uint8_t* GetData() const // select the most relevant data
     {
@@ -177,23 +179,26 @@ private:
       newFrame.resize( kFlaggedForDelete );
     }
 
-    size_t GetWriteBytes( uint8_t version ) const // # bytes to write
+    uint32_t GetWriteBytes( uint8_t version ) const // # bytes to write
     {
-      switch( newFrame.size() )
+      uint32_t newFrameSize = static_cast<uint32_t>( newFrame.size() );
+      switch( newFrameSize )
       {
       case 0:                 return GetFrameBytes( rawFrame, version ); // orig frame
       case kFlaggedForDelete: return 0u;
-      default:                return newFrame.size();
+      default:                return newFrameSize;
       }
     }
-  }; // Frame
+  }; // ID3Frame
 
 private:
 
-  const Frame* GetTextFrame( Mp3FrameType ) const;
+  uint64_t FindApeHeaderOffset( File& ) const;
+
+  const ID3Frame* GetTextFrame( Mp3FrameType ) const;
   size_t GetTextFrameReferencePos( Mp3FrameType ) const;
 
-  const Frame* GetCommentFrame( size_t index ) const;
+  const ID3Frame* GetCommentFrame( size_t index ) const;
   size_t GetCommentFrameReferencePos( size_t index ) const;
 
   void DeleteTextFrame( Mp3FrameType );
@@ -206,8 +211,9 @@ private:
   std::filesystem::path path_;
   ID3v2FileHeader       fileHeader_;
   uint32_t              audioBufferOffset_ = 0u;;
-  std::vector<uint8_t>  frameBuffer_; // raw buffer of all MP3 frames
-  std::vector<Frame>    frames_;      // list of all MP3 frames; typically <50
+  std::vector<uint8_t>  id3FrameBuffer_; // raw buffer of all ID3 frames
+  std::vector<uint8_t>  apeFrameBuffer_; // raw buffer of all APE frames
+  std::vector<ID3Frame> frames_;         // list of all MP3 frames; typically <50
 
   using FramePos = size_t;               // index into mFrames
   std::vector<FramePos>  textFrames_;    // list of all text frames (subset of mFrames)

@@ -34,8 +34,11 @@ using namespace PKIsensee;
 namespace // anonymous
 {
 
-constexpr size_t kInvalidFramePos = size_t( -1 );
-constexpr size_t kPaddingBytes = 2048u; // commonly used in MP3 tagging software
+constexpr size_t   kInvalidFramePos = size_t( -1 );
+constexpr size_t   kPaddingBytes = 2048u; // commonly used in MP3 tagging software
+constexpr uint64_t kBacktrackBufferSize = 4096u;  // chunk size of APE header search
+constexpr uint64_t kNoApeHeader = uint64_t( -1 );
+static constexpr const char* kApeTag = "APETAGEX";
 
 } // end anonymous namespace
 
@@ -46,7 +49,8 @@ constexpr size_t kPaddingBytes = 2048u; // commonly used in MP3 tagging software
 bool Mp3TagData::LoadTagData( const std::filesystem::path& path )
 {
   path_ = path;
-  frameBuffer_.resize( 0 );
+  id3FrameBuffer_.resize( 0 );
+  apeFrameBuffer_.resize( 0 );
   frames_.resize( 0 );
   textFrames_.resize( 0 );
   commentFrames_.resize( 0 );
@@ -70,22 +74,38 @@ bool Mp3TagData::LoadTagData( const std::filesystem::path& path )
   assert( frameSectionSize < ( 1024 * 1024 ) ); // ensure reasonable
   audioBufferOffset_ = sizeof( fileHeader_ ) + frameSectionSize;
 
-  // Read all frames into memory
-  frameBuffer_.resize( frameSectionSize );
-  size_t bytesRead;
-  if( !mp3File.Read( frameBuffer_.data(), frameSectionSize, bytesRead ) )
+  // Read all ID3 frames into memory
+  id3FrameBuffer_.resize( frameSectionSize );
+  uint32_t bytesRead;
+  if( !mp3File.Read( id3FrameBuffer_.data(), frameSectionSize, bytesRead ) )
   {
-    PKLOG_WARN( "Failed to read MP3 frames from %S; ERR: %d\n", path_.c_str(), Util::GetLastError() );
+    PKLOG_WARN( "Failed to read ID3 frames from %S; ERR: %d\n", path_.c_str(), Util::GetLastError() );
     return false;
+  }
+
+  // Search for APE tag
+  uint64_t apeStart = FindApeHeaderOffset( mp3File );
+  if( apeStart != kNoApeHeader )
+  {
+    uint32_t apeHeaderBytes = static_cast<uint32_t>( mp3File.GetLength() - apeStart );
+    std::vector<uint8_t> apeBuffer_;
+    apeFrameBuffer_.resize( apeHeaderBytes );
+    if( !mp3File.SetPos( apeStart ) || 
+        !mp3File.Read( apeFrameBuffer_.data(), apeHeaderBytes, bytesRead ) )
+    {
+      PKLOG_WARN( "Failed to read APE tags from %S; ERR: %d\n", path_.c_str(), Util::GetLastError() );
+      return false;
+    }
   }
 
   // Close the file asynchronously while we parse the frames from memory)
   std::future fileClose = std::async( std::launch::async, [&] { mp3File.Close(); } );
   if( bytesRead < frameSectionSize )
-    frameBuffer_.resize( bytesRead );
+    id3FrameBuffer_.resize( bytesRead );
 
   // Parse frames
-  ParseFrames();
+  ParseID3Frames();
+  ParseAPETags();
   fileClose.wait();
   return true;
 };
@@ -97,7 +117,7 @@ bool Mp3TagData::LoadTagData( const std::filesystem::path& path )
 std::string Mp3TagData::GetText( Mp3FrameType frameType ) const
 {
   assert( IsTextFrame( frameType ) );
-  const Frame* pFrame = GetTextFrame(frameType);
+  const ID3Frame* pFrame = GetTextFrame(frameType);
   if( pFrame == nullptr )
     return std::string();
 
@@ -151,11 +171,11 @@ void Mp3TagData::SetText( Mp3FrameType frameType, const std::string& newStr )
   if (framePos == kInvalidFramePos )
   {
     // Frame type isn't in MP3 file; create new frame and add to right lists 
-    frames_.emplace_back( Frame() );
+    frames_.emplace_back( ID3Frame{} );
     framePos = frames_.size() - 1;
     textFrames_.emplace_back( framePos );
   }
-  Mp3TagData::Frame* pFrame = &( frames_[ framePos ] );
+  Mp3TagData::ID3Frame* pFrame = &( frames_[ framePos ] );
 
   // Create a text frame of the proper size
   auto sizeAlloc = ID3v2TextFrame::GetFrameSize( newStr );
@@ -187,12 +207,12 @@ void Mp3TagData::SetComment( size_t i, const std::string& newComment )
   if( i == commentFrames_.size() )
   {
     // Comment at index i isn't in file yet; create new frame and add to right lists 
-    frames_.emplace_back( Frame() );
+    frames_.emplace_back( ID3Frame{} );
     commentFrames_.emplace_back( frames_.size() - 1 );
   }
 
   FramePos framePos = commentFrames_[ i ];
-  Mp3TagData::Frame* pFrame = &( frames_[framePos] );
+  Mp3TagData::ID3Frame* pFrame = &( frames_[framePos] );
 
   // Create a comment frame of the proper size
   auto sizeAlloc = ID3v2CommentFrame::GetFrameSize( newComment );
@@ -228,7 +248,7 @@ bool Mp3TagData::Write()
 
   // same as std::accumulate
   size_t frameSectionSize = 
-    std::ranges::fold_left( frames_, size_t{}, [ fh = fileHeader_ ]( size_t sum, const Frame& frame )
+    std::ranges::fold_left( frames_, size_t{}, [ fh = fileHeader_ ]( size_t sum, const ID3Frame& frame )
     {
       return sum + frame.GetWriteBytes( fh.GetMajorVersion() );
     } );
@@ -244,8 +264,8 @@ bool Mp3TagData::Write()
   }
 
   // Padding bytes depends on whether new frames will fit within existing space
-  size_t padBytes = ( frameSectionSize > frameBuffer_.size() ) ? 
-                      kPaddingBytes : ( frameBuffer_.size() - frameSectionSize );
+  size_t padBytes = ( frameSectionSize > id3FrameBuffer_.size() ) ? 
+                      kPaddingBytes : ( id3FrameBuffer_.size() - frameSectionSize );
 
   // Write new id3v2 header size
   fileHeader_.SetSize( static_cast<uint32_t>( frameSectionSize + padBytes ) );
@@ -254,12 +274,13 @@ bool Mp3TagData::Write()
 
   // Read existing audio data if we're going to overwrite it
   std::vector<uint8_t> audioData;
-  if( frameSectionSize > frameBuffer_.size() )
+  if( frameSectionSize > id3FrameBuffer_.size() )
   {
-    assert( mp3File.GetLength() <= std::numeric_limits<uint32_t>::max() );
-    size_t audioDataSize = size_t(mp3File.GetLength()) - frameBuffer_.size() - sizeof( fileHeader_ );
+    uint64_t audioDataSize64 = mp3File.GetLength() - id3FrameBuffer_.size() - sizeof( fileHeader_ );
+    assert( audioDataSize64 <= std::numeric_limits<uint32_t>::max() );
+    uint32_t audioDataSize = static_cast<uint32_t>( audioDataSize64 );
     audioData.resize( audioDataSize );
-    uint64_t pos = static_cast<uint64_t>( sizeof( fileHeader_ ) ) + frameBuffer_.size();
+    uint64_t pos = sizeof( fileHeader_ ) + id3FrameBuffer_.size();
     if( mp3File.SetPos( pos ) )
     {
       mp3File.Read( audioData.data(), audioDataSize );
@@ -280,12 +301,12 @@ bool Mp3TagData::Write()
     // It's possible to have 2K stack buffer rather than a heap allocation, but this is simpler
     // and dominated by the file write time anyway
     std::vector<uint8_t> zeros( padBytes, 0 );
-    verify( mp3File.Write( zeros.data(), zeros.size() ) );
+    verify( mp3File.Write( zeros.data(), uint32_t( zeros.size() ) ) );
   }
 
   // Append audio data if it was overwritten
   if( !audioData.empty() )
-    verify( mp3File.Write( audioData.data(), audioData.size() ) );
+    verify( mp3File.Write( audioData.data(), uint32_t( audioData.size() ) ) );
 
   // Update all fields with correct new data
   mp3File.Close();
@@ -327,22 +348,22 @@ bool Mp3TagData::IsValidFileHeader() const
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// True if frame found and processed; false when there are no more frames left
+// True if ID3 frame found and processed; false when there are no more frames left
 
-bool Mp3TagData::ParseFrame( uint32_t& offset )
+bool Mp3TagData::ParseID3Frame( uint32_t& offset )
 {
   // If we've reached end of the tag section, we're done
-  if( offset >= frameBuffer_.size() )
+  if( offset >= id3FrameBuffer_.size() )
     return false;
 
-  const auto* rawFrame = frameBuffer_.data() + offset;
+  const auto* rawFrame = id3FrameBuffer_.data() + offset;
 
   // If we've hit a null byte or header is whacked, 
   // we're into padding territory and there are no more tags
   if( !Mp3BaseTagData::IsValidFrame( rawFrame ) )
     return false;
 
-  Frame frame( rawFrame );
+  ID3Frame frame( rawFrame );
   frames_.emplace_back( frame );
 
   offset += static_cast<uint32_t>(GetFrameBytes( rawFrame, fileHeader_.GetMajorVersion() ));
@@ -351,15 +372,15 @@ bool Mp3TagData::ParseFrame( uint32_t& offset )
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// Process all the frames 
+// Process all the ID3 frames 
 
-void Mp3TagData::ParseFrames()
+void Mp3TagData::ParseID3Frames()
 {
   // Build frame list
   auto offset = 0u;
   auto framesRemain = true;
   while( framesRemain )
-    framesRemain = ParseFrame( offset );
+    framesRemain = ParseID3Frame( offset );
 
   // Create sublists for common frame types
   for( size_t i = 0u; i < frames_.size(); ++i )
@@ -384,6 +405,49 @@ void Mp3TagData::ParseFrames()
 
 ///////////////////////////////////////////////////////////////////////////////
 //
+// True if APE tag found and processed; false when there are no more tags left
+
+bool Mp3TagData::ParseAPETag( uint32_t& offset )
+{
+  // If we've reached end of the tag section, we're done
+  if( offset >= apeFrameBuffer_.size() )
+    return false;
+
+  [[maybe_unused]] const auto* rawTag = apeFrameBuffer_.data() + offset;
+  //APETag tag( rawTag );
+  //apeTags_.emplace_back( tag );
+
+  //offset += tag.GetSize();
+  offset += 48; // temp TODO
+  return true;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Process all the APE tags
+
+void Mp3TagData::ParseAPETags()
+{
+  // Build frame list
+  auto offset = 0u;
+  auto framesRemain = true;
+  while( framesRemain )
+    framesRemain = ParseAPETag( offset );
+
+  // Create sublists for common frame types
+  /*
+  for( size_t i = 0u; i < frames_.size(); ++i )
+  {
+    if( frames_[ i ].IsTextFrame() )
+      textFrames_.emplace_back( i );
+    else if( frames_[ i ].IsCommentFrame() )
+      commentFrames_.emplace_back( i );
+  }
+  */
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
 // Extracts the frame size from the given frame
 
 uint32_t Mp3TagData::GetFrameSize( const uint8_t* rawFrame, uint8_t majorVersion ) // static
@@ -397,10 +461,62 @@ uint32_t Mp3TagData::GetFrameSize( const uint8_t* rawFrame, uint8_t majorVersion
 //
 // Extract the number of bytes represented by this frame 
 
-size_t Mp3TagData::GetFrameBytes( const uint8_t* rawFrame, uint8_t version ) // static
+uint32_t Mp3TagData::GetFrameBytes( const uint8_t* rawFrame, uint8_t version ) // static
 {
   assert( rawFrame != nullptr );
   return sizeof( ID3v2FrameHdr ) + GetFrameSize( rawFrame, version );
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Locate APE header in the MP3 file
+//
+// Typically found near or at the end of the file. Search in chunks to maximize
+// speed. Returns the file offset of the APE header, or kNoApeHeader if not found.
+
+uint64_t Mp3TagData::FindApeHeaderOffset( File& mp3File ) const
+{
+  auto fileSize = mp3File.GetLength();
+  auto filePos = ( kBacktrackBufferSize > fileSize ) ? 0u : fileSize - kBacktrackBufferSize;
+  std::string searchBuffer;
+  searchBuffer.resize( kBacktrackBufferSize );
+  uint32_t bytesRead = 0u;
+  auto findPos = std::string::npos;
+  auto tagLength = std::string( kApeTag ).size();
+  uint32_t readLength = kBacktrackBufferSize;
+
+  while( findPos == std::string::npos && filePos > 0 )
+  {
+    // Read the search buffer from the MP3 file
+    mp3File.SetPos( filePos );
+    if( !mp3File.Read( searchBuffer.data(), readLength, bytesRead ) )
+    {
+      PKLOG_WARN( "Failed to read MP3 APE frames from %S; ERR: %d\n", path_.c_str(), Util::GetLastError() );
+      return kNoApeHeader;
+    }
+
+    findPos = searchBuffer.find( kApeTag );
+    if( findPos != std::string::npos )
+    {
+      // Found the APE header
+      uint64_t apeStart = filePos + findPos;
+      return apeStart;
+    }
+
+    // Keep searching
+    if( kBacktrackBufferSize > filePos )
+      filePos = 0u;
+    else
+      filePos -= kBacktrackBufferSize;
+
+    // For all searches after the first, include the tag length in the buffer
+    // to detect scenarios where the tag is on the border of the two backtrackBuffers
+    readLength = uint32_t( kBacktrackBufferSize + tagLength );
+    searchBuffer.resize( readLength );
+  }
+
+  // Searched the entire file and no APE header
+  return kNoApeHeader;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -410,7 +526,7 @@ size_t Mp3TagData::GetFrameBytes( const uint8_t* rawFrame, uint8_t version ) // 
 // There are on order of a couple dozen of frames in a typical MP3 file and rarely
 // more than 100, so linear search is fine
 
-const Mp3TagData::Frame* Mp3TagData::GetTextFrame( Mp3FrameType frameType ) const
+const Mp3TagData::ID3Frame* Mp3TagData::GetTextFrame( Mp3FrameType frameType ) const
 {
   auto framePos = GetTextFrameReferencePos( frameType );
   if( framePos == kInvalidFramePos )
@@ -435,7 +551,7 @@ size_t Mp3TagData::GetTextFrameReferencePos( Mp3FrameType frameType ) const
 //
 // Locate comment frame
 
-const Mp3TagData::Frame* Mp3TagData::GetCommentFrame( size_t i ) const
+const Mp3TagData::ID3Frame* Mp3TagData::GetCommentFrame( size_t i ) const
 {
   assert( i < commentFrames_.size() );
   auto framePos = GetCommentFrameReferencePos( i );
@@ -545,11 +661,11 @@ std::ostream& PKIsensee::operator<<( std::ostream& out, const Mp3TagData& tagDat
   out << "Audio offset: " << tagData.audioBufferOffset_ << '\n';
 
   // Build sorted list of frames
-  std::vector< const Mp3TagData::Frame* > frames;
+  std::vector< const Mp3TagData::ID3Frame* > frames;
   for( const auto& frame : tagData.frames_ )
     frames.push_back( &frame );
 
-  auto sorter = []( const Mp3TagData::Frame* lhs, const Mp3TagData::Frame* rhs ) {
+  auto sorter = []( const Mp3TagData::ID3Frame* lhs, const Mp3TagData::ID3Frame* rhs ) {
     // private frames first, comments last
     if( lhs->IsPrivateFrame() )
       return true;
@@ -568,7 +684,7 @@ std::ostream& PKIsensee::operator<<( std::ostream& out, const Mp3TagData& tagDat
 
   for( const auto& framePtr : frames )
   {
-    const Mp3TagData::Frame& frame = *framePtr;
+    const Mp3TagData::ID3Frame& frame = *framePtr;
     out << "ID: " << frame.GetFrameID();
     const auto* rawFrame = frame.GetData();
     const auto* id3Frame = reinterpret_cast<const ID3v2FrameHdr*>( rawFrame );
