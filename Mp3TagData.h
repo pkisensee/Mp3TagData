@@ -105,7 +105,7 @@ private:
     {
     }
 
-    ID3Frame( RawFramePtr f ) noexcept
+    explicit ID3Frame( RawFramePtr f ) noexcept
       : rawFrame( f )
     {
     }
@@ -191,6 +191,42 @@ private:
     }
   }; // ID3Frame
 
+  ///////////////////////////////////////////////////////////////////////////
+  //
+  // APE tag manager
+  // 
+  // APE tags currently treated as read-only.
+  // Safe to cast GetData() to const APEv2TagItem*
+
+  struct APETag
+  {
+  private:
+    using RawTagPtr = const uint8_t*;
+    RawTagPtr rawTag = nullptr;
+
+  public:
+    APETag() noexcept
+    {
+    }
+
+    explicit APETag(RawTagPtr t) noexcept
+      : rawTag(t)
+    {
+    }
+
+    APETag(const APETag&) noexcept = default;
+    APETag& operator=(const APETag&) noexcept = delete;
+    APETag(APETag&&) noexcept = default;
+    APETag& operator=(APETag&&) noexcept = default;
+
+    const uint8_t* GetData() const
+    {
+      // safe to cast to APEv2TagItem
+      return rawTag;
+    }
+
+  }; // APETag
+
 private:
 
   uint64_t FindApeHeaderOffset( File& ) const;
@@ -214,6 +250,7 @@ private:
   std::vector<uint8_t>  id3FrameBuffer_; // raw buffer of all ID3 frames
   std::vector<uint8_t>  apeFrameBuffer_; // raw buffer of all APE frames
   std::vector<ID3Frame> frames_;         // list of all MP3 frames; typically <50
+  std::vector<APETag>   apeTags_;        // list of all APE tags
 
   using FramePos = size_t;               // index into mFrames
   std::vector<FramePos>  textFrames_;    // list of all text frames (subset of mFrames)

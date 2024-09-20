@@ -17,7 +17,9 @@
 #include <algorithm>
 #include <future>
 #include <limits>
+#include <ranges>
 
+#include "APEv2Frames.h"
 #include "File.h"
 #include "Log.h"
 #include "Mp3TagData.h"
@@ -103,7 +105,7 @@ bool Mp3TagData::LoadTagData( const std::filesystem::path& path )
   if( bytesRead < frameSectionSize )
     id3FrameBuffer_.resize( bytesRead );
 
-  // Parse frames
+  // Parse frames/tags
   ParseID3Frames();
   ParseAPETags();
   fileClose.wait();
@@ -239,7 +241,7 @@ uint32_t Mp3TagData::GetAudioBufferOffset() const
 ///////////////////////////////////////////////////////////////////////////////
 //
 // Write modified or deleted frames to the given file, making sure that audio
-// data remains intact
+// and APE data remains intact
 
 bool Mp3TagData::Write()
 {
@@ -267,12 +269,12 @@ bool Mp3TagData::Write()
   size_t padBytes = ( frameSectionSize > id3FrameBuffer_.size() ) ? 
                       kPaddingBytes : ( id3FrameBuffer_.size() - frameSectionSize );
 
-  // Write new id3v2 header size
+  // Write new ID3v2 header size
   fileHeader_.SetSize( static_cast<uint32_t>( frameSectionSize + padBytes ) );
   if( !mp3File.Write( &fileHeader_, sizeof( fileHeader_ ) ) )
     return false;
 
-  // Read existing audio data if we're going to overwrite it
+  // Read existing audio and APE data if we're going to overwrite it
   std::vector<uint8_t> audioData;
   if( frameSectionSize > id3FrameBuffer_.size() )
   {
@@ -304,7 +306,7 @@ bool Mp3TagData::Write()
     verify( mp3File.Write( zeros.data(), uint32_t( zeros.size() ) ) );
   }
 
-  // Append audio data if it was overwritten
+  // Append audio and APE data if it was overwritten
   if( !audioData.empty() )
     verify( mp3File.Write( audioData.data(), uint32_t( audioData.size() ) ) );
 
@@ -363,6 +365,7 @@ bool Mp3TagData::ParseID3Frame( uint32_t& offset )
   if( !Mp3BaseTagData::IsValidFrame( rawFrame ) )
     return false;
 
+  // TODO frames_ -> ID3frames_
   ID3Frame frame( rawFrame );
   frames_.emplace_back( frame );
 
@@ -405,50 +408,57 @@ void Mp3TagData::ParseID3Frames()
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// True if APE tag found and processed; false when there are no more tags left
+// Read next APE tag
 
 bool Mp3TagData::ParseAPETag( uint32_t& offset )
 {
-  // If we've reached end of the tag section, we're done
+  // Safety check: if unexpected end of the tag section, something is wrong
+  // so bail out
   if( offset >= apeFrameBuffer_.size() )
     return false;
+  
+  // Archive the tag for future reference
+  const auto* rawTag = apeFrameBuffer_.data() + offset;
+  APETag tag( rawTag );
+  apeTags_.emplace_back( tag );
 
-  [[maybe_unused]] const auto* rawTag = apeFrameBuffer_.data() + offset;
-  //APETag tag( rawTag );
-  //apeTags_.emplace_back( tag );
-
-  //offset += tag.GetSize();
-  offset += 48; // temp TODO
+  // Determine where to find the next tag
+  const auto* apeTagItem = reinterpret_cast<const APEv2TagItem*>( rawTag );
+  offset += apeTagItem->GetTagSize();
   return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 //
 // Process all the APE tags
+// See https://mutagen-specs.readthedocs.io/en/latest/apev2/apev2.html#
 
 void Mp3TagData::ParseAPETags()
 {
-  // Build frame list
-  auto offset = 0u;
-  auto framesRemain = true;
-  while( framesRemain )
-    framesRemain = ParseAPETag( offset );
+  if( apeFrameBuffer_.empty() )
+    return;
 
-  // Create sublists for common frame types
-  /*
-  for( size_t i = 0u; i < frames_.size(); ++i )
-  {
-    if( frames_[ i ].IsTextFrame() )
-      textFrames_.emplace_back( i );
-    else if( frames_[ i ].IsCommentFrame() )
-      commentFrames_.emplace_back( i );
-  }
-  */
+  // Validate the header
+  const auto* rawTag = apeFrameBuffer_.data();
+  const auto* apeTagHeader = reinterpret_cast<const APEv2TagHeader*>( rawTag );
+  assert(apeTagHeader->IsHeader());
+
+  // Build tag item list
+  uint32_t offset = sizeof(APEv2TagHeader);
+  for( auto itemCount = apeTagHeader->GetItemCount(); itemCount; --itemCount )
+    if( !ParseAPETag(offset) )
+      break;
+
+  // Validate the footer
+  assert( offset == apeTagHeader->GetTagSize());
+  rawTag = apeFrameBuffer_.data() + offset;
+  [[maybe_unused]] const auto* apeTagFooter = reinterpret_cast<const APEv2TagHeader*>( rawTag );
+  assert( !apeTagFooter->IsHeader() );
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// Extracts the frame size from the given frame
+// Extracts the frame size from the given ID3 frame
 
 uint32_t Mp3TagData::GetFrameSize( const uint8_t* rawFrame, uint8_t majorVersion ) // static
 {
@@ -459,7 +469,8 @@ uint32_t Mp3TagData::GetFrameSize( const uint8_t* rawFrame, uint8_t majorVersion
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// Extract the number of bytes represented by this frame 
+// Extract the number of bytes represented by this ID3 frame
+// TODO FrameSize?
 
 uint32_t Mp3TagData::GetFrameBytes( const uint8_t* rawFrame, uint8_t version ) // static
 {
@@ -611,7 +622,9 @@ void Mp3TagData::DeleteCommentFrame( size_t i )
 //
 // Stream helpers
 
-std::string PrintEncoding( ID3TextEncoding encoding )
+namespace {
+
+std::string PrintEncoding(ID3TextEncoding encoding)
 {
   std::ostringstream oss;
   oss << "Enc:" << static_cast<int>( encoding ) << "<";
@@ -627,81 +640,70 @@ std::string PrintEncoding( ID3TextEncoding encoding )
   return oss.str();
 }
 
-std::string PrintText( const std::string& text )
+std::string PrintTextWithPrefix(const std::string& prefix, const std::string& text)
 {
   std::ostringstream oss;
-  oss << "Txt:\"" << text << "\"[" << text.size() << ']';
+  oss << prefix << ":\"" << text << "\"[" << text.size() << ']';
   return oss.str();
 }
 
-std::string PrintBlob( const std::span<const uint8_t>& blob )
+std::string PrintText(const std::string& text)
+{
+  return PrintTextWithPrefix("Txt", text);
+}
+
+std::string PrintKey(const std::string& key)
+{
+  return PrintTextWithPrefix("Key", key);
+}
+
+std::string PrintBlob(const std::span<const uint8_t>& blob)
 {
   std::ostringstream oss;
   oss << "Dta:";
   oss << std::hex;
   for( auto u : blob )
-    oss << std::uppercase << std::setfill( '0' ) << std::setw( 2 ) << std::right << +u << ' ';
+    oss << std::uppercase << std::setfill('0') << std::setw(2) << std::right << +u << ' ';
   oss << std::dec << "[" << blob.size() << "]";
   return oss.str();
 }
 
+} // anonymous
+
 ///////////////////////////////////////////////////////////////////////////////
 //
-// Stream frames as text
+// Stream frame/tag info as text
 
 std::ostream& PKIsensee::operator<<( std::ostream& out, const Mp3TagData& tagData )
 {
   out << "Path: " << tagData.path_ << '\n';
 
   const ID3v2FileHeader& hdr = tagData.fileHeader_;
-  out << "Id3: " << hdr.GetHeaderID() << '\n';
-  out << "Version: " << std::dec << +hdr.GetMajorVersion() << '.' << +hdr.GetMinorVersion() << '\n';
-  out << "Flags: 0x" << std::hex << std::uppercase << +hdr.GetFlags() << std::dec << '\n';
-  out << "Size: " << hdr.GetSize() << " (" << std::hex << std::uppercase << hdr.GetSize() << std::dec << ")\n";
-  out << "Audio offset: " << tagData.audioBufferOffset_ << '\n';
+  out << "ID3:" << hdr.GetHeaderID() << ' ';
+  out << "Ver:" << std::dec << +hdr.GetMajorVersion() << '.' << +hdr.GetMinorVersion() << ' ';
+  out << "Flg:0x" << std::hex << std::uppercase << +hdr.GetFlags() << std::dec << ' ';
+  out << "Siz:" << hdr.GetSize() << " (" << std::hex << std::uppercase << hdr.GetSize() << std::dec << ")\n";
+  out << "AudOffset:" << tagData.audioBufferOffset_ << '\n';
 
-  // Build sorted list of frames
-  std::vector< const Mp3TagData::ID3Frame* > frames;
-  for( const auto& frame : tagData.frames_ )
-    frames.push_back( &frame );
-
-  auto sorter = []( const Mp3TagData::ID3Frame* lhs, const Mp3TagData::ID3Frame* rhs ) {
-    // private frames first, comments last
-    if( lhs->IsPrivateFrame() )
-      return true;
-    if( rhs->IsPrivateFrame() )
-      return false;
-    if( lhs->IsCommentFrame() )
-      return false;
-    if( rhs->IsCommentFrame() )
-      return true;
-    // text frames by ID
-    if( lhs->IsTextFrame() && rhs->IsTextFrame() )
-      return lhs->GetFrameID() < rhs->GetFrameID();
-    return true;
-    };
-  std::ranges::sort( frames, sorter );
-
-  for( const auto& framePtr : frames )
+  for( const auto& f : tagData.frames_ )
   {
-    const Mp3TagData::ID3Frame& frame = *framePtr;
-    out << "ID: " << frame.GetFrameID();
-    const auto* rawFrame = frame.GetData();
+    out << "ID3: " << f.GetFrameID();
+    const auto* rawFrame = f.GetData();
     const auto* id3Frame = reinterpret_cast<const ID3v2FrameHdr*>( rawFrame );
-    out << " FrmSiz:" << id3Frame->GetSize( hdr.GetMajorVersion() ) << ' ';
-    if( frame.IsTextFrame() )
+    out << " Siz:" << id3Frame->GetSize( hdr.GetMajorVersion() ) << ' ';
+    if( f.IsTextFrame() )
     {
       const auto* textFrame = reinterpret_cast<const ID3v2TextFrame*>( rawFrame );
-      out << PrintEncoding( textFrame->GetTextEncoding() ) << ' ';
-      out << PrintText( textFrame->GetText( hdr.GetMajorVersion() ) ) << '\n';
+      out << PrintText(textFrame->GetText(hdr.GetMajorVersion())) << ' ';
+      out << PrintEncoding( textFrame->GetTextEncoding() ) << '\n';
     }
-    else if( frame.IsCommentFrame() )
+    else if( f.IsCommentFrame() )
     {
       const auto* commFrame = reinterpret_cast<const ID3v2CommentFrame*>( rawFrame );
-      out << PrintEncoding( commFrame->GetTextEncoding() ) << ' ';
-      out << PrintText( commFrame->GetText( hdr.GetMajorVersion() ) ) << '\n';
+      out << PrintText( commFrame->GetText( hdr.GetMajorVersion() ) ) << ' ';
+      out << PrintEncoding(commFrame->GetTextEncoding()) << '\n';
     }
-    else if ( frame.IsPrivateFrame() )
+    else if ( f.IsPrivateFrame() )
     {
       const auto* privFrame = reinterpret_cast<const ID3v2PrivateFrame*>( rawFrame );
       out << PrintText( privFrame->GetText() ) << ' ';
@@ -712,6 +714,21 @@ std::ostream& PKIsensee::operator<<( std::ostream& out, const Mp3TagData& tagDat
       out << '\n';
     }
   }
+
+  // Output APE tags
+  for( const auto& t : tagData.apeTags_ )
+  {
+    const auto* rawTag = t.GetData();
+    const auto* apeTag = reinterpret_cast<const APEv2TagItem*>( rawTag );
+    out << "APE: Siz:" << apeTag->GetTagSize() << ' ';
+    out << PrintKey(apeTag->GetKey()) << ' ';
+    out << ( apeTag->IsText() ? PrintText(apeTag->GetText()) :
+                                PrintBlob(apeTag->GetData()) );
+    if( apeTag->IsReadOnly() )
+      out << "(RO)";
+    out << '\n';
+  }
+
   return out;
 }
 

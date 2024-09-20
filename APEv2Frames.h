@@ -73,7 +73,7 @@ public:
     return std::string{ apeID_[ 0 ], apeID_[ 1 ], apeID_[ 2 ], apeID_[ 3 ],
                         apeID_[ 4 ], apeID_[ 5 ], apeID_[ 6 ], apeID_[ 7 ] };
   }
-
+  
   uint32_t GetVersion() const
   {
     return version_;
@@ -122,7 +122,7 @@ class APEv2TagItem
 private:
 
 #pragma pack(push,1)   // Essential for strict binary layout of the APE file format
-  uint32_t size_;      // size of value_ in bytes
+  uint32_t valueSize_; // size of value_ in bytes
   uint32_t flags_;     // see kFlag list above
   char key_[ 1 ];      // ASCII string key; null terminated
   // uint8_t value_[]; // size_ bytes long; may be a UTF8 string or binary blob
@@ -138,9 +138,14 @@ public:
   APEv2TagItem( APEv2TagItem&& ) = delete;
   APEv2TagItem& operator=( APEv2TagItem&& ) = delete;
 
-  uint32_t GetSize() const
+  uint32_t GetValueSize() const // bytes
   {
-    return size_;
+    return valueSize_;
+  }
+
+  uint32_t GetTagSize() const // bytes
+  {
+    return uint32_t( sizeof(*this) + GetKey().size() + valueSize_ );
   }
 
   bool IsText() const
@@ -179,7 +184,7 @@ public:
 
   std::span<const uint8_t> GetData() const
   {
-    size_t blobBytes = static_cast<size_t>( GetSize() );
+    size_t blobBytes = static_cast<size_t>( GetValueSize() );
     std::string value = GetKey();
     size_t valueBytes = value.size() + sizeof( '\0' );
     const uint8_t* blobStart = reinterpret_cast<const uint8_t*>( key_ ) + valueBytes;
