@@ -250,12 +250,14 @@ public:
   uint32_t GetSize( uint8_t majorVersion ) const
   {
     // Version 3: big endian value. Other versions are syncSafe.
+    assert( majorVersion >= kMajorVersionWith8BitSize );
     return ( majorVersion == kMajorVersionWith8BitSize ) ? ReadID3Int<8>( syncSafeSize_ ) :
                                                            ReadID3Int<7>( syncSafeSize_ );
   }
 
   void SetHeader( const std::string& frameID, uint32_t newFrameSize, uint8_t majorVersion )
   {
+    assert( majorVersion >= kMajorVersionWith8BitSize );
     assert( frameID.size() == kFrameIDCharCount );
     memcpy( frameID_, frameID.data(), kFrameIDCharCount );
 
@@ -296,6 +298,7 @@ public:
     // |                                           |
     // |<----------offset-------->|<--textBytes--->|
 
+    assert( majorVersion >= kMajorVersionWith8BitSize );
     auto rawFrame = reinterpret_cast<const uint8_t*>( this );
     auto textStart = str.GetTextStart( isWideString );
     assert( rawFrame < textStart );
@@ -348,6 +351,7 @@ public:
 
   std::string GetText( uint8_t majorVersion ) const
   {
+    assert( majorVersion >= kMajorVersionWith8BitSize );
     bool isWideString = IsWideString();
 
     // Determine size of string
@@ -429,6 +433,7 @@ public:
 
   std::string GetText( uint8_t majorVersion ) const
   {
+    assert( majorVersion >= kMajorVersionWith8BitSize );
     bool isWideString = IsWideString();
 
     // Determine size of string
@@ -548,6 +553,7 @@ public:
     // |                                                    |
     // |                   |<--strBytes-->|<---blobBytes--->|
 
+    assert( majorVersion >= kMajorVersionWith8BitSize );
     uint32_t frameSize = GetSize( majorVersion );
     std::string str = GetText();
     size_t strBytes = str.size() + sizeof( '\0' );

@@ -13,7 +13,7 @@
 //  warranties.
 //
 //  APE v2 frame structures. Intended to be used as "casted-to" objects, e.g.
-//  APEv2Header* pApeHdr = reinterpret_cast<APEv2Header*>( pFrame->GetData() );
+//  APEv2Header* pApeHdr = reinterpret_cast<APEv2Header*>( pTag->GetData() );
 // 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -193,6 +193,7 @@ public:
 
   std::string GetText() const
   {
+    assert( IsText() );
     auto data = GetData();
     std::string value{ data.begin(), data.end() };
     return value;
