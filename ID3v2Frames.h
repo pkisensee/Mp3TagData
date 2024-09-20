@@ -38,6 +38,7 @@ static constexpr uint8_t     kByteOrderMark1 = 0xFF;
 
 // syncSafeSize: V3: plain old big endian value, V4+: syncSafe integer
 static constexpr uint8_t     kMajorVersionWith8BitSize = 3;
+static constexpr uint8_t     kMajorVersionMax = 7;
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -146,6 +147,21 @@ public:
     syncSafeSize_ = WriteID3Int<7>( newSize );
   }
 
+  bool IsValid() const
+  {
+    if( !PK_VALID( GetHeaderID() == kID3String ) )
+      return false;
+    if( !PK_VALID( majorVersion_ >= kMajorVersionWith8BitSize ) )
+      return false;
+    if( !PK_VALID( majorVersion_ < kMajorVersionMax ) )
+      return false;
+    if( !PK_VALID( minorVersion_ != 0xFF ) )
+      return false;
+    if( !PK_VALID( ( flags_ & kFlagsRemaining ) == 0x0 ) )
+      return false;
+    return true;
+  }
+
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -216,6 +232,37 @@ public:
   std::wstring GetTextWide( size_t charCount ) const
   {
     return std::wstring( unicode_.utf16_, charCount );
+  }
+
+  bool IsValid( ID3TextEncoding textEncoding ) const
+  {
+    switch( textEncoding )
+    {
+    case ID3TextEncoding::ANSI:
+    case ID3TextEncoding::UTF8:
+      if( !PK_VALID( utf8_[0] != '\0' ) )
+        return false;
+      break;
+    case ID3TextEncoding::UTF16:
+      if( !PK_VALID( unicode_.bom_[0] == kByteOrderMark1 ) )
+        return false;
+      if( !PK_VALID( unicode_.bom_[1] == kByteOrderMark0 ) )
+        return false;
+      if( !PK_VALID( unicode_.utf16_[0] != 0 ) )
+        return false;
+      break;
+    case ID3TextEncoding::UTF16BE:
+      if( !PK_VALID( unicode_.bom_[0] == kByteOrderMark0 ) )
+        return false;
+      if( !PK_VALID( unicode_.bom_[1] == kByteOrderMark1 ) )
+        return false;
+      if( !PK_VALID( unicode_.utf16_[0] != 0 ) )
+        return false;
+      break;
+    default:
+      return false;
+    }
+    return true;
   }
 
 };
@@ -337,9 +384,7 @@ public:
 
   ID3TextEncoding GetTextEncoding() const
   {
-    assert( textEncoding_ >= 0 );
-    assert( textEncoding_ <= static_cast<uint8_t>( ID3TextEncoding::Max ) );
-    return static_cast<ID3TextEncoding>( textEncoding_ );
+    return IsValid() ? ID3TextEncoding(textEncoding_) : ID3TextEncoding::ANSI;
   }
 
   bool IsWideString() const
@@ -352,6 +397,8 @@ public:
   std::string GetText( uint8_t majorVersion ) const
   {
     assert( majorVersion >= kMajorVersionWith8BitSize );
+    if( !IsValid() )
+      return {};
     bool isWideString = IsWideString();
 
     // Determine size of string
@@ -379,7 +426,7 @@ public:
 
   void SetText( const std::string& newText )
   {
-    textEncoding_ = static_cast<uint8_t>( ID3TextEncoding::ANSI );
+    textEncoding_ = uint8_t( ID3TextEncoding::ANSI );
     str_.SetText( newText );
   }
 
@@ -392,6 +439,15 @@ public:
     // If UTF16 needed, add wstring method that multiplies this value by sizeof(wchar_t)
     size += newText.size();
     return static_cast<uint32_t>( size );
+  }
+
+  bool IsValid() const
+  {
+    if( !PK_VALID( textEncoding_ >= 0 ) )
+      return false;
+    if( !PK_VALID( textEncoding_ <= uint8_t(ID3TextEncoding::Max ) ) )
+      return false;
+    return str_.IsValid( ID3TextEncoding( textEncoding_ ) );
   }
 
 };
