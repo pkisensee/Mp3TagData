@@ -21,29 +21,27 @@
 
 using namespace PKIsensee;
 
-namespace // anonymous
-{
-
-static constexpr const char* kApeTag = "APETAGEX";
-
-static constexpr uint32_t kMinApeVersion = 1 * 1000;
-static constexpr uint32_t kMaxApeVersion = 10 * 1000;
 static constexpr uint32_t kMaxApeAllTagsSize = 1024 * 1024;
 static constexpr uint32_t kMinTagItemSize = ( sizeof( uint32_t ) * 2 ) + sizeof( char ) + sizeof( '\n' );;
+
+// See https://mutagen-specs.readthedocs.io/en/latest/apev2/apev2.html#
+static constexpr const char* kApeTag = "APETAGEX";
+static constexpr uint32_t kMinApeVersion = 1 * 1000; // 1000 = v1
+static constexpr uint32_t kMaxApeVersion = 10 * kMinApeVersion;
 static constexpr uint32_t kMinKeySize = 2;
 static constexpr uint32_t kMaxKeySize = 255;
 static constexpr char kMinKeyCharVal = ' ';
 static constexpr char kMaxKeyCharVal = '~';
 
-} // anonymous
-
 ///////////////////////////////////////////////////////////////////////////////
 //
-// APEv2TagHeaders and Items are typically read from an untrusted file, so 
-// verification is critical
+// APEv2TagHeaders and APEv2TagItems are typically read from an untrusted file, 
+// so verification is critical
 
 bool APEv2TagHeader::IsValid() const
 {
+  static_assert( std::is_standard_layout_v<APEv2TagHeader> );
+
   if( !PK_VALID( GetHeaderID() == kApeTag ) )
     return false;
 
@@ -77,7 +75,7 @@ bool APEv2TagHeader::IsValid() const
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// Extract key as string
+// Standard APE tag
 
 std::string_view APEv2TagHeader::GetStdApeTag() // static
 {
@@ -86,7 +84,7 @@ std::string_view APEv2TagHeader::GetStdApeTag() // static
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// Extract key as string
+// Extract tag key
 
 std::string_view APEv2TagItem::GetKey() const
 {
@@ -101,7 +99,7 @@ std::string_view APEv2TagItem::GetKey() const
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// Extract data as blob; data block starts after key trailing null char
+// Extract tag data as blob; data block begins after key trailing null char
 
 std::span<const uint8_t> APEv2TagItem::GetData() const
 {
@@ -130,10 +128,12 @@ std::string_view APEv2TagItem::GetText() const
 
 bool APEv2TagItem::IsValid() const
 {
+  static_assert( std::is_standard_layout_v<APEv2TagItem> );
+
   if( !PK_VALID( ( flags_ & ~kFlagsUsed ) == 0 ) )
     return false;
 
-  // key must be len 2-255, space through ~
+  // key must be len 2-255, chars: ' ' through '~'
   uint32_t charCount = 0u;
   for( const auto* s = key_; *s != '\0'; ++s, ++charCount )
   {
@@ -149,7 +149,4 @@ bool APEv2TagItem::IsValid() const
   return true;
 }
 
-
-
-
-
+///////////////////////////////////////////////////////////////////////////////

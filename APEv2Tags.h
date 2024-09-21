@@ -118,7 +118,7 @@ public:
   bool IsValid() const;
   static std::string_view GetStdApeTag();
 
-};
+}; // class APEv2TagHeader
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -139,8 +139,9 @@ private:
 
 public:
 
-  APEv2TagItem() = default;
-  APEv2TagItem( const APEv2TagItem& ) = default;
+  // Intended to be used as casted-to object
+  APEv2TagItem() = delete;
+  APEv2TagItem( const APEv2TagItem& ) = delete;
   APEv2TagItem& operator=( const APEv2TagItem& ) = delete;
   APEv2TagItem( APEv2TagItem&& ) = delete;
   APEv2TagItem& operator=( APEv2TagItem&& ) = delete;
