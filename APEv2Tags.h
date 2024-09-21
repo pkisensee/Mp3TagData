@@ -18,26 +18,22 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #pragma once
-#include <cassert>
 #include <cstdint>
 #include <span>
 #include <string>
 
 namespace // anonymous
 {
-
 static constexpr uint32_t kFlagIsReadOnly = ( 1u << 0 );
 static constexpr uint32_t kFlagIsBinary   = ( 1u << 1 );
 static constexpr uint32_t kFlagIsHeader   = ( 1u << 29 );
 static constexpr uint32_t kFlagHasFooter  = ( 1u << 30 );
 static constexpr uint32_t kFlagHasHeader  = ( 1u << 31 );
 static constexpr uint32_t kFlagsUsed = kFlagIsReadOnly |
-kFlagIsBinary |
-kFlagIsHeader |
-kFlagHasFooter |
-kFlagHasHeader;
-
-
+                                       kFlagIsBinary   |
+                                       kFlagIsHeader   |
+                                       kFlagHasFooter  |
+                                       kFlagHasHeader;
 } // anonymous
 
 namespace PKIsensee
@@ -68,17 +64,16 @@ private:
 
 public:
 
-  APEv2TagHeader() = default;
-  APEv2TagHeader( const APEv2TagHeader& ) = default;
+  // Intended to be used as casted-to object
+  APEv2TagHeader() = delete;
+  APEv2TagHeader( const APEv2TagHeader& ) = delete;
   APEv2TagHeader& operator=( const APEv2TagHeader& ) = delete;
   APEv2TagHeader( APEv2TagHeader&& ) = delete;
   APEv2TagHeader& operator=( APEv2TagHeader&& ) = delete;
 
-  // TODO string_views?
-  std::string GetHeaderID() const
+  std::string_view GetHeaderID() const
   {
-    return std::string{ apeID_[ 0 ], apeID_[ 1 ], apeID_[ 2 ], apeID_[ 3 ],
-                        apeID_[ 4 ], apeID_[ 5 ], apeID_[ 6 ], apeID_[ 7 ] };
+    return std::string_view{ apeID_, kApeIDSize };
   }
   
   uint32_t GetVersion() const
@@ -121,7 +116,7 @@ public:
   }
 
   bool IsValid() const;
-  static std::string GetStdApeTag();
+  static std::string_view GetStdApeTag();
 
 };
 
@@ -175,9 +170,9 @@ public:
     return !!( flags_ & kFlagIsReadOnly );
   }
 
-  std::string GetKey() const;
+  std::string_view GetKey() const;
   std::span<const uint8_t> GetData() const;
-  std::string GetText() const;
+  std::string_view GetText() const;
   bool IsValid() const;
 
 }; // class APEv2TagItem

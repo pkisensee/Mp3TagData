@@ -14,6 +14,8 @@
 //
 ///////////////////////////////////////////////////////////////////////////////
 
+#include <cassert>
+
 #include "APEv2Tags.h"
 #include "Util.h"
 
@@ -77,25 +79,24 @@ bool APEv2TagHeader::IsValid() const
 //
 // Extract key as string
 
-std::string APEv2TagHeader::GetStdApeTag() // static
+std::string_view APEv2TagHeader::GetStdApeTag() // static
 {
-  return std::string( kApeTag );
+  return std::string_view( kApeTag );
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 //
 // Extract key as string
 
-std::string APEv2TagItem::GetKey() const
+std::string_view APEv2TagItem::GetKey() const
 {
   if( !IsValid() )
     return {};
 
   uint32_t charCount = 0u;
-  std::string value;
   for( const auto* s = key_; *s != '\0'; ++s, ++charCount )
-    value.push_back( *s );
-  return value;
+    ;
+  return std::string_view{ key_, charCount };
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -104,7 +105,7 @@ std::string APEv2TagItem::GetKey() const
 
 std::span<const uint8_t> APEv2TagItem::GetData() const
 {
-  std::string key = GetKey();
+  std::string_view key = GetKey();
   if( key.empty() )
     return {};
   size_t valueBytes = static_cast<size_t>( GetValueSize() );
@@ -117,14 +118,14 @@ std::span<const uint8_t> APEv2TagItem::GetData() const
 //
 // Extract data as text
 
-std::string APEv2TagItem::GetText() const
+std::string_view APEv2TagItem::GetText() const
 {
   if( !IsValid() )
     return {};
   assert( IsText() );
-  auto data = GetData();
-  std::string value{ data.begin(), data.end() };
-  return value;
+  auto blob = GetData();
+  auto textStart = reinterpret_cast<const char*>( blob.data() );
+  return std::string_view{ textStart, blob.size() };
 }
 
 bool APEv2TagItem::IsValid() const

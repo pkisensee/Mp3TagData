@@ -508,8 +508,9 @@ public:
       // Skip comment description
       auto start = std::begin( descriptionAndComment );
       auto end = start + static_cast<signed>( charCount );
-      for( ; *start && start != end; ++start )
+      for( ; *start && start < end; ++start )
         ;
+      ++start; // skip null char
 
       // Must always be embedded null character between desc & comment
       if( !PK_VALID( start != end ) )
@@ -518,7 +519,7 @@ public:
       // Validate and skip BOM
       if( !PK_VALID( *start == kByteOrderMark ) )
         return {};
-      start++;
+      ++start;
 
       value = StringUtil::GetUtf8( std::wstring( start, end ) ); // comment text
     }
@@ -530,8 +531,9 @@ public:
       // Skip comment description
       auto start = std::begin( descPlusComment );
       auto end = start + static_cast<signed>( charCount );
-      for( ; *start && start != end; ++start )
+      for( ; *start && start < end; ++start )
         ;
+      ++start; // skip null char
 
       // Must always be embedded null character between desc & comment
       if( !PK_VALID( start != end ) )

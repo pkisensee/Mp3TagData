@@ -76,7 +76,7 @@ bool Mp3TagData::LoadTagData( const std::filesystem::path& path )
   assert( frameSectionSize < ( 1024 * 1024 ) ); // ensure reasonable
   audioBufferOffset_ = sizeof( fileHeader_ ) + frameSectionSize;
 
-  // Read all ID3 frames into memory
+  // Read ID3 frames into memory buffer
   id3FrameBuffer_.resize( frameSectionSize );
   uint32_t bytesRead;
   if( !mp3File.Read( id3FrameBuffer_.data(), frameSectionSize, bytesRead ) )
@@ -84,8 +84,10 @@ bool Mp3TagData::LoadTagData( const std::filesystem::path& path )
     PKLOG_WARN( "Failed to read ID3 frames from %S; ERR: %d\n", path_.c_str(), Util::GetLastError() );
     return false;
   }
+  if( bytesRead < frameSectionSize )
+    id3FrameBuffer_.resize( bytesRead );
 
-  // Search for APE tag
+  // Read APE tags into memory buffer
   uint64_t apeStart = FindApeHeaderOffset( mp3File );
   if( apeStart != kNoApeHeader )
   {
@@ -98,12 +100,12 @@ bool Mp3TagData::LoadTagData( const std::filesystem::path& path )
       PKLOG_WARN( "Failed to read APE tags from %S; ERR: %d\n", path_.c_str(), Util::GetLastError() );
       return false;
     }
+    if( bytesRead < apeHeaderBytes )
+      apeFrameBuffer_.resize( bytesRead );
   }
 
-  // Close the file asynchronously while we parse the frames from memory)
+  // Close the file asynchronously while we parse the frames from memory
   std::future fileClose = std::async( std::launch::async, [&] { mp3File.Close(); } );
-  if( bytesRead < frameSectionSize )
-    id3FrameBuffer_.resize( bytesRead );
 
   // Parse frames/tags
   ParseID3Frames();
@@ -624,7 +626,7 @@ void Mp3TagData::DeleteCommentFrame( size_t i )
 
 namespace {
 
-std::string PrintEncoding(ID3TextEncoding encoding)
+std::string PrintEncoding( ID3TextEncoding encoding )
 {
   std::ostringstream oss;
   oss << "Enc:" << static_cast<int>( encoding ) << "<";
@@ -640,24 +642,24 @@ std::string PrintEncoding(ID3TextEncoding encoding)
   return oss.str();
 }
 
-std::string PrintTextWithPrefix(const std::string& prefix, const std::string& text)
+std::string PrintTextWithPrefix( std::string_view prefix, std::string_view text )
 {
   std::ostringstream oss;
   oss << prefix << ":\"" << text << "\"[" << text.size() << ']';
   return oss.str();
 }
 
-std::string PrintText(const std::string& text)
+std::string PrintText( std::string_view text )
 {
   return PrintTextWithPrefix("Txt", text);
 }
 
-std::string PrintKey(const std::string& key)
+std::string PrintKey( std::string_view key )
 {
   return PrintTextWithPrefix("Key", key);
 }
 
-std::string PrintBlob(const std::span<const uint8_t>& blob)
+std::string PrintBlob( std::span<const uint8_t> blob )
 {
   std::ostringstream oss;
   oss << "Dta:";
