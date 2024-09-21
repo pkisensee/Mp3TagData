@@ -4,10 +4,11 @@
     <ClInclude Include="Mp3BaseTagData.h" />
     <ClInclude Include="Mp3TagData.h" />
     <ClInclude Include="ID3v2Frames.h" />
-    <ClInclude Include="APEv2Frames.h" />
+    <ClInclude Include="APEv2Tags.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Mp3GenreList.cpp" />
     <ClCompile Include="Mp3TagData.cpp" />
+    <ClCompile Include="APEv2Tags.cpp" />
   </ItemGroup>
 </Project>

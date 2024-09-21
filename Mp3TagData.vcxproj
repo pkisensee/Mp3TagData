@@ -19,12 +19,13 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="APEv2Frames.h" />
+    <ClInclude Include="APEv2Tags.h" />
     <ClInclude Include="ID3v2Frames.h" />
     <ClInclude Include="Mp3BaseTagData.h" />
     <ClInclude Include="Mp3TagData.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="APEv2Tags.cpp" />
     <ClCompile Include="Mp3GenreList.cpp" />
     <ClCompile Include="Mp3TagData.cpp" />
   </ItemGroup>

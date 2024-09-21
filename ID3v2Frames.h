@@ -31,6 +31,7 @@ namespace // anonymous
 
 static constexpr const char* kID3String = "ID3";
 static constexpr const char* kEnglishLanguage = "eng";
+static constexpr size_t      kLanguageCharCount = 3;
 static constexpr size_t      kFrameIDCharCount = 4;
 static constexpr uint16_t    kByteOrderMark = 0xFEFF;
 static constexpr uint8_t     kByteOrderMark0 = 0xFE;
@@ -81,6 +82,16 @@ enum class ID3TextEncoding
   UTF8 = 3,
   Max
 };
+
+// TODO consider making textEncoding its own class
+inline bool IsValidTextEncoding( uint8_t textEncoding )
+{
+  if( !PK_VALID( textEncoding >= 0 ) )
+    return false;
+  if( !PK_VALID( textEncoding <= uint8_t( ID3TextEncoding::Max ) ) )
+    return false;
+  return true;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -240,23 +251,17 @@ public:
     {
     case ID3TextEncoding::ANSI:
     case ID3TextEncoding::UTF8:
-      if( !PK_VALID( utf8_[0] != '\0' ) )
-        return false;
-      break;
+      return true;
     case ID3TextEncoding::UTF16:
       if( !PK_VALID( unicode_.bom_[0] == kByteOrderMark1 ) )
         return false;
       if( !PK_VALID( unicode_.bom_[1] == kByteOrderMark0 ) )
-        return false;
-      if( !PK_VALID( unicode_.utf16_[0] != 0 ) )
         return false;
       break;
     case ID3TextEncoding::UTF16BE:
       if( !PK_VALID( unicode_.bom_[0] == kByteOrderMark0 ) )
         return false;
       if( !PK_VALID( unicode_.bom_[1] == kByteOrderMark1 ) )
-        return false;
-      if( !PK_VALID( unicode_.utf16_[0] != 0 ) )
         return false;
       break;
     default:
@@ -443,9 +448,7 @@ public:
 
   bool IsValid() const
   {
-    if( !PK_VALID( textEncoding_ >= 0 ) )
-      return false;
-    if( !PK_VALID( textEncoding_ <= uint8_t(ID3TextEncoding::Max ) ) )
+    if( !IsValidTextEncoding( textEncoding_ ) )
       return false;
     return str_.IsValid( ID3TextEncoding( textEncoding_ ) );
   }
@@ -465,7 +468,7 @@ private:
 #pragma pack(push,1) // Essential for strict binary layout of the ID3 file format
   // Order and size must not be modified
   uint8_t       textEncoding_;  // see TextEncoding IDs above
-  char          language_[ 3 ]; // e.g. "eng"
+  char          language_[kLanguageCharCount]; // e.g. "eng"
   ID3v2String   str_;           // contains both description and comment
 #pragma pack(pop)
 
@@ -475,9 +478,7 @@ public:
 
   ID3TextEncoding GetTextEncoding() const
   {
-    assert( textEncoding_ >= 0 );
-    assert( textEncoding_ <= static_cast<uint8_t>( ID3TextEncoding::Max ) );
-    return static_cast< ID3TextEncoding >( textEncoding_ );
+    return IsValid() ? ID3TextEncoding( textEncoding_ ) : ID3TextEncoding::ANSI;
   }
 
   bool IsWideString() const
@@ -507,11 +508,16 @@ public:
       // Skip comment description
       auto start = std::begin( descriptionAndComment );
       auto end = start + static_cast<signed>( charCount );
-      for( ; *start++; )
+      for( ; *start && start != end; ++start )
         ;
 
-      // Skip BOM
-      assert( *start == kByteOrderMark );
+      // Must always be embedded null character between desc & comment
+      if( !PK_VALID( start != end ) )
+        return {};
+
+      // Validate and skip BOM
+      if( !PK_VALID( *start == kByteOrderMark ) )
+        return {};
       start++;
 
       value = StringUtil::GetUtf8( std::wstring( start, end ) ); // comment text
@@ -524,8 +530,12 @@ public:
       // Skip comment description
       auto start = std::begin( descPlusComment );
       auto end = start + static_cast<signed>( charCount );
-      for( ; *start++; )
+      for( ; *start && start != end; ++start )
         ;
+
+      // Must always be embedded null character between desc & comment
+      if( !PK_VALID( start != end ) )
+        return {};
 
       value.assign( start, end ); // comment text
     }
@@ -550,10 +560,23 @@ public:
   void SetText( const std::string& newText )
   {
     textEncoding_ = static_cast<uint8_t>( ID3TextEncoding::ANSI );
-    memcpy( language_, kEnglishLanguage, 3 );
+    memcpy( language_, kEnglishLanguage, kLanguageCharCount );
     *str_.utf8_ = '\0'; // empty description; add new param if needed
     memcpy( str_.utf8_ + sizeof( '\0' ), newText.c_str(), newText.size() );
   }
+
+  bool IsValid() const
+  {
+    if( !IsValidTextEncoding( textEncoding_ ) )
+      return false;
+    for( size_t i = 0; i < kLanguageCharCount; ++i )
+    {
+      if( !PK_VALID( CharUtil::IsAlpha( language_[i] ) ) )
+        return false;
+    }
+    return str_.IsValid( ID3TextEncoding(textEncoding_) );
+  }
+
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -579,18 +602,13 @@ public:
   std::string GetText() const
   {
     uint32_t maxFrameSize = GetSize( kMajorVersionWith8BitSize );
-    uint32_t charCount = 0u;
     std::string value;
     const char* s = str_;
-    for( ; *s != '\0'; ++s, ++charCount )
+    for( uint32_t charCount = 0u; *s != '\0'; ++s, ++charCount )
     {
-      // Safety check
-      if( charCount == maxFrameSize )
-      {
-        // Failure indicates malformed frame
-        assert( charCount < maxFrameSize );
+      // Safety check; failure indicates malformed frame
+      if( !PK_VALID( charCount < maxFrameSize ) )
         break;
-      }
       value.push_back( *s );
     }
     return value;

@@ -19,7 +19,7 @@
 #include <limits>
 #include <ranges>
 
-#include "APEv2Frames.h"
+#include "APEv2Tags.h"
 #include "File.h"
 #include "Log.h"
 #include "Mp3TagData.h"
@@ -27,6 +27,7 @@
 
 using namespace PKIsensee;
 
+// TODO PK_VALID?
 #ifdef _DEBUG
 #define verify(e) assert(e)
 #else
@@ -40,7 +41,6 @@ constexpr size_t   kInvalidFramePos = size_t( -1 );
 constexpr size_t   kPaddingBytes = 2048u; // commonly used in MP3 tagging software
 constexpr uint64_t kBacktrackBufferSize = 4096u;  // chunk size of APE header search
 constexpr uint64_t kNoApeHeader = uint64_t( -1 );
-static constexpr const char* kApeTag = "APETAGEX";
 
 } // end anonymous namespace
 
@@ -450,7 +450,7 @@ void Mp3TagData::ParseAPETags()
       break;
 
   // Validate the footer
-  assert( offset == apeTagHeader->GetTagSize());
+  assert( offset == apeTagHeader->GetTagBlockSize());
   rawTag = apeFrameBuffer_.data() + offset;
   [[maybe_unused]] const auto* apeTagFooter = reinterpret_cast<const APEv2TagHeader*>( rawTag );
   assert( !apeTagFooter->IsHeader() );
@@ -493,7 +493,7 @@ uint64_t Mp3TagData::FindApeHeaderOffset( File& mp3File ) const
   searchBuffer.resize( kBacktrackBufferSize );
   uint32_t bytesRead = 0u;
   auto findPos = std::string::npos;
-  auto tagLength = std::string( kApeTag ).size();
+  auto tagLength = APEv2TagHeader::GetStdApeTag().size();
   uint32_t readLength = kBacktrackBufferSize;
 
   while( findPos == std::string::npos && filePos > 0 )
@@ -506,7 +506,7 @@ uint64_t Mp3TagData::FindApeHeaderOffset( File& mp3File ) const
       return kNoApeHeader;
     }
 
-    findPos = searchBuffer.find( kApeTag );
+    findPos = searchBuffer.find( APEv2TagHeader::GetStdApeTag() );
     if( findPos != std::string::npos )
     {
       // Found the APE header

@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////
 //
-//  APEv2Frames.h
+//  APEv2Tags.h
 //
 //  Copyright © Pete Isensee (PKIsensee@msn.com).
 //  All rights reserved worldwide.
@@ -31,6 +31,12 @@ static constexpr uint32_t kFlagIsBinary   = ( 1u << 1 );
 static constexpr uint32_t kFlagIsHeader   = ( 1u << 29 );
 static constexpr uint32_t kFlagHasFooter  = ( 1u << 30 );
 static constexpr uint32_t kFlagHasHeader  = ( 1u << 31 );
+static constexpr uint32_t kFlagsUsed = kFlagIsReadOnly |
+kFlagIsBinary |
+kFlagIsHeader |
+kFlagHasFooter |
+kFlagHasHeader;
+
 
 } // anonymous
 
@@ -45,7 +51,7 @@ namespace PKIsensee
 
 class APEv2TagHeader
 {
-public:
+private:
 
   static constexpr uint32_t kApeIDSize = 8;
 
@@ -54,9 +60,9 @@ private:
 #pragma pack(push,1) // Essential for strict binary layout of the APE file format
   char     apeID_[ kApeIDSize ] = {};   // 'APETAGEX'
   uint32_t version_ = 2u;      // e.g. 1 or 2
-  uint32_t tagSize_ = 0u;      // in bytes, including footer and all tag items; excluding header
+  uint32_t tagBlockSize_ = 0u; // in bytes, including footer and all tag items; excluding header
   uint32_t itemCount_ = 0u;    // number of items in the tag
-  uint32_t flags_ = 0u;        // see kFlag list above
+  uint32_t flags_ = 0u;        // see kFlag list in implementation file
   uint64_t reserved_ = 0uL;    // must be zero
 #pragma pack(pop)
 
@@ -68,6 +74,7 @@ public:
   APEv2TagHeader( APEv2TagHeader&& ) = delete;
   APEv2TagHeader& operator=( APEv2TagHeader&& ) = delete;
 
+  // TODO string_views?
   std::string GetHeaderID() const
   {
     return std::string{ apeID_[ 0 ], apeID_[ 1 ], apeID_[ 2 ], apeID_[ 3 ],
@@ -79,13 +86,17 @@ public:
     return version_;
   }
 
-  uint32_t GetTagSize() const
+  uint32_t GetTagBlockSize() const
   {
-    return tagSize_;
+    if( !IsValid() )
+      return 0u;
+    return tagBlockSize_;
   }
 
   uint32_t GetItemCount() const
   {
+    if( !IsValid() )
+      return 0u;
     return itemCount_;
   }
 
@@ -109,6 +120,9 @@ public:
     return !!( flags_ & kFlagIsReadOnly );
   }
 
+  bool IsValid() const;
+  static std::string GetStdApeTag();
+
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -125,10 +139,8 @@ private:
   uint32_t valueSize_; // size of value_ in bytes
   uint32_t flags_;     // see kFlag list above
   char key_[ 1 ];      // ASCII string key; null terminated
-  // uint8_t value_[]; // size_ bytes long; may be a UTF8 string or binary blob
+  // uint8_t value_[]; // valueSize_ bytes long; may be a UTF8 string or binary blob
 #pragma pack(pop)
-
-  static constexpr uint32_t kMaxKeySize = 255;
 
 public:
 
@@ -163,43 +175,12 @@ public:
     return !!( flags_ & kFlagIsReadOnly );
   }
 
-  std::string GetKey() const
-  {
-    uint32_t charCount = 0u;
-    std::string value;
-    const char* s = key_;
-    for( ; *s != '\0'; ++s, ++charCount )
-    {
-      // Safety check
-      if( charCount == kMaxKeySize )
-      {
-        // Failure indicates malformed frame
-        assert( charCount < kMaxKeySize );
-        break;
-      }
-      value.push_back( *s );
-    }
-    return value;
-  }
+  std::string GetKey() const;
+  std::span<const uint8_t> GetData() const;
+  std::string GetText() const;
+  bool IsValid() const;
 
-  std::span<const uint8_t> GetData() const
-  {
-    size_t blobBytes = static_cast<size_t>( GetValueSize() );
-    std::string value = GetKey();
-    size_t valueBytes = value.size() + sizeof( '\0' );
-    const uint8_t* blobStart = reinterpret_cast<const uint8_t*>( key_ ) + valueBytes;
-    return std::span{ blobStart, blobBytes };
-  }
-
-  std::string GetText() const
-  {
-    assert( IsText() );
-    auto data = GetData();
-    std::string value{ data.begin(), data.end() };
-    return value;
-  }
-
-};
+}; // class APEv2TagItem
 
 } // namespace PKIsensee
 
