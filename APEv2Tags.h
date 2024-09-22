@@ -18,9 +18,11 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 #pragma once
-#include <cstdint>
 #include <span>
 #include <string>
+#include <string_view>
+
+#include "Util.h"
 
 namespace // anonymous
 {
@@ -45,7 +47,7 @@ namespace PKIsensee
 //
 // See: https://mutagen-specs.readthedocs.io/en/latest/apev2/apev2.html#
 
-class APEv2TagHeader
+class APEv2TagHeader PK_PACKED_STRUCT // packing essential to match APE file format
 {
 private:
 
@@ -53,14 +55,14 @@ private:
 
 private:
 
-#pragma pack(push,1) // Essential for strict binary layout of the APE file format
+PK_START_PACK
   char     apeID_[ kApeIDSize ] = {};   // 'APETAGEX'
   uint32_t version_ = 2u;      // e.g. 1 or 2
   uint32_t tagBlockSize_ = 0u; // in bytes, including footer and all tag items; excluding header
   uint32_t itemCount_ = 0u;    // number of items in the tag
   uint32_t flags_ = 0u;        // see kFlag list in implementation file
   uint64_t reserved_ = 0uL;    // must be zero
-#pragma pack(pop)
+PK_END_PACK
 
 public:
 
@@ -110,11 +112,6 @@ public:
     return !!( flags_ & kFlagIsHeader );
   }
 
-  bool IsReadOnly() const
-  {
-    return !!( flags_ & kFlagIsReadOnly );
-  }
-
   bool IsValid() const;
   static std::string_view GetStdApeTag();
 
@@ -123,19 +120,22 @@ public:
 ///////////////////////////////////////////////////////////////////////////////
 //
 // APE tag item
+// 
+// Consists of a key/value pair, where the key is a string from length 2-255
+// and the value is either a string or binary blob of length GetValueSize().
 //
 // See: https://mutagen-specs.readthedocs.io/en/latest/apev2/apev2.html#item
 
-class APEv2TagItem
+class APEv2TagItem PK_PACKED_STRUCT // packing essential to match APE file format
 {
 private:
 
-#pragma pack(push,1)   // Essential for strict binary layout of the APE file format
+PK_START_PACK
   uint32_t valueSize_; // size of value_ in bytes
   uint32_t flags_;     // see kFlag list above
   char key_[ 1 ];      // ASCII string key; null terminated
   // uint8_t value_[]; // valueSize_ bytes long; may be a UTF8 string or binary blob
-#pragma pack(pop)
+PK_END_PACK
 
 public:
 

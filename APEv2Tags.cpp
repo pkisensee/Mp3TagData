@@ -22,11 +22,13 @@
 using namespace PKIsensee;
 
 static constexpr uint32_t kMaxApeAllTagsSize = 1024 * 1024;
-static constexpr uint32_t kMinTagItemSize = ( sizeof( uint32_t ) * 2 ) + sizeof( char ) + sizeof( '\n' );;
+static constexpr uint32_t kMinTagItemSize = ( sizeof( uint32_t ) * 2 ) + 
+                                              sizeof( char ) + 
+                                              sizeof( '\n' );;
 
 // See https://mutagen-specs.readthedocs.io/en/latest/apev2/apev2.html#
 static constexpr const char* kApeTag = "APETAGEX";
-static constexpr uint32_t kMinApeVersion = 1 * 1000; // 1000 = v1
+static constexpr uint32_t kMinApeVersion = 1 * 1000; // 1000 = v1, 2000 = v2
 static constexpr uint32_t kMaxApeVersion = 10 * kMinApeVersion;
 static constexpr uint32_t kMinKeySize = 2;
 static constexpr uint32_t kMaxKeySize = 255;
@@ -60,7 +62,7 @@ bool APEv2TagHeader::IsValid() const
   if( !PK_VALID( itemCount_ < ( kMaxApeAllTagsSize / kMinTagItemSize ) ) )
     return false;
 
-  if( version_ == kMinApeVersion )
+  if( version_ == kMinApeVersion ) // v1 had no flags defined
   {
     if( !PK_VALID( flags_ == 0u ) )
       return false;
@@ -79,7 +81,7 @@ bool APEv2TagHeader::IsValid() const
 
 std::string_view APEv2TagHeader::GetStdApeTag() // static
 {
-  return std::string_view( kApeTag );
+  return std::string_view( kApeTag, kApeIDSize );
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -88,12 +90,12 @@ std::string_view APEv2TagHeader::GetStdApeTag() // static
 
 std::string_view APEv2TagItem::GetKey() const
 {
-  if( !IsValid() )
+  if( !IsValid() ) // Validation check ensures key size <= 255
     return {};
 
   uint32_t charCount = 0u;
-  for( const auto* s = key_; *s != '\0'; ++s, ++charCount )
-    ;
+  for( const auto* s = key_; *s != '\0'; ++s )
+    ++charCount;
   return std::string_view{ key_, charCount };
 }
 
@@ -103,11 +105,11 @@ std::string_view APEv2TagItem::GetKey() const
 
 std::span<const uint8_t> APEv2TagItem::GetData() const
 {
-  std::string_view key = GetKey();
+  std::string_view key = GetKey(); // Validation check in GetKey()
   if( key.empty() )
     return {};
-  size_t valueBytes = static_cast<size_t>( GetValueSize() );
-  size_t keyBytes = key.size() + sizeof( '\0' );
+  auto valueBytes = GetValueSize();
+  auto keyBytes = key.size() + sizeof( '\0' );
   const uint8_t* valueStart = reinterpret_cast<const uint8_t*>( key_ ) + keyBytes;
   return std::span{ valueStart, valueBytes };
 }
@@ -118,10 +120,8 @@ std::span<const uint8_t> APEv2TagItem::GetData() const
 
 std::string_view APEv2TagItem::GetText() const
 {
-  if( !IsValid() )
-    return {};
   assert( IsText() );
-  auto blob = GetData();
+  auto blob = GetData(); // Validation check here
   auto textStart = reinterpret_cast<const char*>( blob.data() );
   return std::string_view{ textStart, blob.size() };
 }
@@ -130,7 +130,7 @@ bool APEv2TagItem::IsValid() const
 {
   static_assert( std::is_standard_layout_v<APEv2TagItem> );
 
-  if( !PK_VALID( ( flags_ & ~kFlagsUsed ) == 0 ) )
+  if( !PK_VALID( (flags_ & ~kFlagsUsed) == 0 ) )
     return false;
 
   // key must be len 2-255, chars: ' ' through '~'
