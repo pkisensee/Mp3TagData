@@ -47,7 +47,7 @@ namespace PKIsensee
 //
 // See: https://mutagen-specs.readthedocs.io/en/latest/apev2/apev2.html#
 
-class APEv2TagHeader PK_PACKED_STRUCT // packing essential to match APE file format
+class PK_PACKED_STRUCT APEv2TagHeader // packing essential to match APE file format
 {
 private:
 
@@ -68,10 +68,6 @@ public:
 
   // Intended to be used as casted-to object
   APEv2TagHeader() = delete;
-  APEv2TagHeader( const APEv2TagHeader& ) = delete;
-  APEv2TagHeader& operator=( const APEv2TagHeader& ) = delete;
-  APEv2TagHeader( APEv2TagHeader&& ) = delete;
-  APEv2TagHeader& operator=( APEv2TagHeader&& ) = delete;
 
   std::string_view GetHeaderID() const
   {
@@ -126,7 +122,7 @@ public:
 //
 // See: https://mutagen-specs.readthedocs.io/en/latest/apev2/apev2.html#item
 
-class APEv2TagItem PK_PACKED_STRUCT // packing essential to match APE file format
+class PK_PACKED_STRUCT APEv2TagItem // packing essential to match APE file format
 {
 private:
 
@@ -141,10 +137,6 @@ public:
 
   // Intended to be used as casted-to object
   APEv2TagItem() = delete;
-  APEv2TagItem( const APEv2TagItem& ) = delete;
-  APEv2TagItem& operator=( const APEv2TagItem& ) = delete;
-  APEv2TagItem( APEv2TagItem&& ) = delete;
-  APEv2TagItem& operator=( APEv2TagItem&& ) = delete;
 
   uint32_t GetValueSize() const // bytes
   {

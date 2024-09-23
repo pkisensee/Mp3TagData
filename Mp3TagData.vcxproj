@@ -26,6 +26,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="APEv2Tags.cpp" />
+    <ClCompile Include="ID3v2Frames.cpp" />
     <ClCompile Include="Mp3GenreList.cpp" />
     <ClCompile Include="Mp3TagData.cpp" />
   </ItemGroup>

@@ -161,7 +161,7 @@ public:
   //
   // True if frameID is made out of capital letters A-Z and 0-9
 
-  static bool IsValidFrameID( const std::string& frameID )
+  static bool IsValidFrameID( std::string_view frameID )
   {
     // Must be 4 characters, alphanumeric and uppercase
     if( frameID.size() != kFrameIDCharCount )
@@ -188,9 +188,9 @@ public:
     return IsTextFrame( kMp3FrameID.at( frameType ) );
   }
 
-  static bool IsTextFrame( const std::string& frameID )
+  static bool IsTextFrame( std::string_view frameID )
   {
-    return IsTextFrame( frameID.c_str() );
+    return IsTextFrame( frameID.data() );
   }
 
   static bool IsTextFrame( const char* frameID )
@@ -203,9 +203,9 @@ public:
   //
   // True if the indicated frame represents a text frame, e.g. "COMM"
 
-  static bool IsCommentFrame( const std::string& frameID )
+  static bool IsCommentFrame( std::string_view frameID )
   {
-    return IsCommentFrame( frameID.c_str() );
+    return IsCommentFrame( frameID.data() );
   }
 
   static bool IsCommentFrame( const char* frameID )
@@ -218,7 +218,7 @@ public:
   //
   // Extract frameID from raw ID3v2 frame
 
-  static std::string GetFrameID( const uint8_t* rawFrame )
+  static std::string_view GetFrameID( const uint8_t* rawFrame ) // TODO GetID3FrameID, and below
   {
     assert( rawFrame != nullptr );
     const auto* frameHeader = reinterpret_cast<const ID3v2FrameHdr*>( rawFrame );

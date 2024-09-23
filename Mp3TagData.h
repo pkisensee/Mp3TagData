@@ -257,7 +257,7 @@ private:
   std::vector<FramePos>  commentFrames_; // list of all comment frames (subset of mFrames)
   bool isDirty_ = false;
 
-}; // end class Mp3TagData
+}; // Mp3TagData
 
 } // end namespace PKIsensee
 
