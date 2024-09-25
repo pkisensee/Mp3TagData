@@ -162,7 +162,7 @@ std::string Mp3TagData::GetComment(size_t i) const
 // Update existing text frame, create new frame if one doesn't exist, or
 // delete frame if newStr is empty
 
-void Mp3TagData::SetText( Mp3FrameType frameType, const std::string& newStr )
+void Mp3TagData::SetText( Mp3FrameType frameType, std::string_view newStr )
 {
   assert( IsTextFrame( frameType ) );
   if( newStr.empty() )
@@ -199,7 +199,7 @@ void Mp3TagData::SetText( Mp3FrameType frameType, const std::string& newStr )
 // Set the comment at the given position; use position GetCommentCount() 
 // to add a new comment; deletes comment frame if newComment is empty
 
-void Mp3TagData::SetComment( size_t i, const std::string& newComment )
+void Mp3TagData::SetComment( size_t i, std::string_view newComment )
 {
   if( newComment.empty() )
   {

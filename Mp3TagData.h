@@ -48,11 +48,11 @@ public:
   std::string GetComment( size_t index=0 ) const final;
 
   // Set text frame string; an empty string removes the frame
-  void SetText( Mp3FrameType, const std::string& ) final;
+  void SetText( Mp3FrameType, std::string_view ) final;
 
   // Set comment frame string; an empty string removes the frame
   // A string at position GetCommentCount() adds a new comment
-  void SetComment( size_t index, const std::string& ) final;
+  void SetComment( size_t index, std::string_view ) final;
 
   // Location in file where to start looking for MPEG audio data
   uint32_t GetAudioBufferOffset() const;
@@ -96,7 +96,7 @@ private:
     RawFramePtr rawFrame = nullptr;
     FrameBuf    newFrame;
 
-    static constexpr uint32_t kFlaggedForDelete = 1;
+    static constexpr uint32_t    kFlaggedForDelete = 1;
     static constexpr const char* kFlaggedForDeleteTag = "DEL ";
     static constexpr const char* kPrivateFrameID = "PRIV";
 
@@ -250,11 +250,11 @@ private:
   std::vector<uint8_t>  id3FrameBuffer_; // raw buffer of all ID3 frames
   std::vector<uint8_t>  apeFrameBuffer_; // raw buffer of all APE frames
   std::vector<ID3Frame> frames_;         // list of all MP3 frames; typically <50
-  std::vector<APETag>   apeTags_;        // list of all APE tags
+  std::vector<APETag>   apeTags_;        // list of all APE tags; typically <50
 
   using FramePos = size_t;               // index into mFrames
-  std::vector<FramePos>  textFrames_;    // list of all text frames (subset of mFrames)
-  std::vector<FramePos>  commentFrames_; // list of all comment frames (subset of mFrames)
+  std::vector<FramePos>  textFrames_;    // list of all text frames (subset of frames_)
+  std::vector<FramePos>  commentFrames_; // list of all comment frames (subset of frames_)
   bool isDirty_ = false;
 
 }; // Mp3TagData

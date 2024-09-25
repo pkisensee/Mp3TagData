@@ -119,11 +119,11 @@ public:
   virtual std::string GetComment( size_t index ) const = 0;
 
   // Set text frame string; an empty string removes the frame
-  virtual void SetText( Mp3FrameType, const std::string& ) = 0;
+  virtual void SetText( Mp3FrameType, std::string_view ) = 0;
 
   // Set comment frame string; an empty string removes the frame
   // A string at position GetCommentCount() adds a new comment
-  virtual void SetComment( size_t index, const std::string& ) = 0;
+  virtual void SetComment( size_t index, std::string_view ) = 0;
 
   // Write frame data if there have been changes
   virtual bool Write() = 0;
@@ -159,7 +159,7 @@ public:
 
   ///////////////////////////////////////////////////////////////////////////////
   //
-  // True if frameID is made out of capital letters A-Z and 0-9
+  // FrameID must be capital letters A-Z or 0-9
 
   static bool IsValidFrameID( std::string_view frameID )
   {
@@ -218,7 +218,7 @@ public:
   //
   // Extract frameID from raw ID3v2 frame
 
-  static std::string_view GetFrameID( const uint8_t* rawFrame ) // TODO GetID3FrameID, and below
+  static std::string_view GetFrameID( const uint8_t* rawFrame )
   {
     assert( rawFrame != nullptr );
     const auto* frameHeader = reinterpret_cast<const ID3v2FrameHdr*>( rawFrame );

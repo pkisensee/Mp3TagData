@@ -196,7 +196,7 @@ public:
 
   ID3v2String() = delete; // only used as a casted-to object
 
-  const uint8_t* GetTextStart( bool isWideString ) const // TODO private?
+  const uint8_t* GetTextStart( bool isWideString ) const
   {
     auto wideStrStart   = reinterpret_cast<const uint8_t*>( unicode_.utf16_ );
     auto narrowStrStart = reinterpret_cast<const uint8_t*>( utf8_ );
