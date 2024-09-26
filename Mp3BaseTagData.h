@@ -231,30 +231,7 @@ public:
     assert( frameType < Mp3FrameType::Max );
     return kMp3FrameID.at( frameType );
   }
-
-  ///////////////////////////////////////////////////////////////////////////////
-  //
-  // Convert frameID string to frame type
-
-  static Mp3FrameType GetID3FrameType( const std::string& frameID )
-  {
-    assert( frameID.size() == kFrameIDCharCount );
-    return GetID3FrameType( frameID.c_str() ); // TODO remove?
-  }
-
-  static Mp3FrameType GetID3FrameType( const char* frameID )
-  {
-    // Note: frameID not necessarily null terminated
-    assert( frameID != nullptr );
-    Mp3FrameType frameType = Mp3FrameType::None; 
-    for ( ++frameType; frameType != Mp3FrameType::APEFirst; ++frameType )
-    {
-      if( memcmp( frameID, kMp3FrameID.at( frameType ), kFrameIDCharCount ) == 0 )
-        return frameType;
-    }
-    return Mp3FrameType::None;
-  }
-
+  
 }; // class Mp3BaseTagData
 
 } // namespace PKIsensee
