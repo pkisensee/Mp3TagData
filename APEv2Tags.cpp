@@ -44,35 +44,21 @@ bool APEv2TagHeader::IsValid() const
 {
   static_assert( std::is_standard_layout_v<APEv2TagHeader> );
 
-  if( !PK_VALID( GetHeaderID() == kApeTag ) )
-    return false;
-
-  if( !PK_VALID( version_ >= kMinApeVersion ) )
-    return false;
-  if( !PK_VALID( version_ <= kMaxApeVersion ) )
-    return false;
-
-  if( !PK_VALID( tagBlockSize_ >= sizeof( *this ) ) ) // always includes footer
-    return false;
-  if( !PK_VALID( tagBlockSize_ < kMaxApeAllTagsSize ) )
-    return false;
-
-  if( !PK_VALID( itemCount_ > 0 ) )
-    return false;
-  if( !PK_VALID( itemCount_ < ( kMaxApeAllTagsSize / kMinTagItemSize ) ) )
-    return false;
-
   if( version_ == kMinApeVersion ) // v1 had no flags defined
   {
     if( !PK_VALID( flags_ == 0u ) )
       return false;
   }
-  else if( !PK_VALID( ( flags_ & ~kFlagsUsed ) == 0 ) )
-    return false;
 
-  if( !PK_VALID( reserved_ == 0u ) )
-    return false;
-  return true;
+  return PK_VALID( GetHeaderID() == kApeTag ) &&
+         PK_VALID( version_ >= kMinApeVersion ) &&
+         PK_VALID( version_ <= kMaxApeVersion ) &&
+         PK_VALID( tagBlockSize_ >= sizeof( *this ) ) && // always includes footer
+         PK_VALID( tagBlockSize_ < kMaxApeAllTagsSize ) &&
+         PK_VALID( itemCount_ > 0 ) &&
+         PK_VALID( itemCount_ < ( kMaxApeAllTagsSize / kMinTagItemSize ) ) &&
+         PK_VALID( ( flags_ & ~kFlagsUsed ) == 0 ) &&
+         PK_VALID( reserved_ == 0u );
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -144,9 +130,7 @@ bool APEv2TagItem::IsValid() const
     if( !PK_VALID( *s <= kMaxKeyCharVal ) )
       return false;
   }
-  if( !PK_VALID( charCount > 1 ) )
-    return false;
-  return true;
+  return PK_VALID( charCount > 1 );
 }
 
 ///////////////////////////////////////////////////////////////////////////////
