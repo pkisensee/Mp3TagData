@@ -48,19 +48,22 @@ enum class Mp3FrameType
   ID3Conductor,      // TPE3
   ID3Language,       // TLAN
   ID3Mood,           // TMOO
-  // Add new ID3 text frame entries here and to match below
+  // Add new ID3 text frame entries here and to match kMp3FrameID below
 
   // Non-text frames
   ID3Comment,        // COMM
-  // Add new non-text frame entries here and to match below
+  // Add new non-text frame entries here and to match kMp3FrameID below
+
+  ID3Max,
 
   // APE frames
   APEFirst,
   APETrackGain = APEFirst, // REPLAYGAIN_TRACK_GAIN
   APETrackPeak,            // REPLAYGAIN_TRACK_PEAK
-  // Add new APE frame entries here and to match below
+  // Add new APE frame entries here and to match kMp3FrameID below
 
-  Max
+  APEMax,
+  Max = APEMax
 };
 
 constexpr size_t kMaxFrameTypes = static_cast<size_t>( Mp3FrameType::Max );
@@ -88,6 +91,7 @@ kMp3FrameID =
   { Mp3FrameType::ID3Language,       "TLAN" }, // Rare; ISO-639-2 3-char codes
   { Mp3FrameType::ID3Mood,           "TMOO" }, // v2.4; rare
   { Mp3FrameType::ID3Comment,        "COMM" }, // Multiple allowed
+  { Mp3FrameType::ID3Max,            "" },
   { Mp3FrameType::APETrackGain,      "REPLAYGAIN_TRACK_GAIN" }, // dB
   { Mp3FrameType::APETrackPeak,      "REPLAYGAIN_TRACK_PEAK" }, // dB
 };

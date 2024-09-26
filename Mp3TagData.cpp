@@ -170,24 +170,23 @@ void Mp3TagData::SetText( Mp3FrameType frameType, std::string_view newStr )
     return;
   }
 
-  /*
-  auto* pFrame = const_cast<ID3Frame*>( GetTextFrame( frameType ) );
-  if( pFrame == nullptr )
-  {
-    // Frame type isn't in MP3 file; create new frame
-    id3Frames_.emplace_back( ID3Frame{} );
-    pFrame = &( id3Frames_.back() );
-  }
-  */
+  // Locate the text frame
+  auto it = std::ranges::find_if( id3Frames_, [frameType]( const auto& frame )
+    {
+      return frame.IsFrameID( frameType );
+    } );
 
-  size_t framePos = GetTextFrameReferencePos( frameType );
-  if (framePos == kInvalidFramePos )
+  // If frame type isn't in MP3 file create new frame
+  ID3Frame* pFrame = nullptr;
+  if( it == std::end( id3Frames_ ) )
   {
-    // Frame type isn't in MP3 file; create new frame and add to right lists 
     id3Frames_.emplace_back( ID3Frame{} );
-    framePos = id3Frames_.size() - 1;
+    pFrame = &id3Frames_.back();
   }
-  Mp3TagData::ID3Frame* pFrame = &( id3Frames_[ framePos ] );
+  else
+  {
+    pFrame = &(*it);
+  }
 
   // Create a text frame of the proper size
   auto sizeAlloc = ID3v2TextFrame::GetFrameSize( newStr );
@@ -402,13 +401,12 @@ void Mp3TagData::ParseID3Frames()
   }
 
   // Check for duplicate ID3 text frames, which should never exist
-  for( auto frameType = Mp3FrameType::First; frameType != Mp3FrameType::ID3Comment; ++frameType )
+  for( auto frameType = Mp3FrameType::First; frameType < Mp3FrameType::ID3Max; ++frameType )
   {
-    [[maybe_unused]] size_t count = 0;
-    // TODO
-    //for( auto i : textFrames_ )
-    //  if( id3Frames_[i].IsFrameID( frameType ) )
-    //    ++count;
+    size_t count = 0;
+    for( const auto& frame : id3Frames_ )
+      if( frame.IsFrameID( frameType ) )
+        ++count;
     if( count > 1 )
       PKLOG_WARN( "\nDuplicate frame %s in %S\n", GetID3FrameID(frameType).c_str(), path_.c_str());
   }
@@ -543,49 +541,15 @@ uint64_t Mp3TagData::FindApeHeaderOffset( File& mp3File ) const
 // Locate text frame
 //
 // There are on order of a couple dozen of frames in a typical MP3 file and rarely
-// more than 100, so linear search is fine
+// more than 50, so linear search is fine
 
 const Mp3TagData::ID3Frame* Mp3TagData::GetTextFrame( Mp3FrameType frameType ) const
 {
-  // TODO
-  /*
-  auto it = std::ranges::find_if( id3Frames_, [frameType](const auto& f)
+  auto it = std::ranges::find_if( id3Frames_, [frameType]( const auto& frame )
     {
-      return f.IsFrameID( frameType );
+      return frame.IsFrameID( frameType );
     } );
-  if( it != std::end( id3Frames_ ) )
-    return &( *it );
-  return nullptr;
-  */
-  auto framePos = GetTextFrameReferencePos( frameType );
-  if( framePos == kInvalidFramePos )
-    return nullptr;
-  return &( id3Frames_[ framePos ] );
-}
-
-size_t Mp3TagData::GetTextFrameReferencePos( Mp3FrameType frameType ) const
-{
-  assert( IsID3TextFrame( frameType ) );
-  size_t pos = 0u;
-  for( const auto& frame : id3Frames_ )
-  {
-    if( frame.IsFrameID( frameType ) )
-    {
-      return pos;
-    }
-    ++pos;
-  }
-
-  /*
-  auto it = std::ranges::find_if( textFrames_, [ &frames_ = id3Frames_, frameType ]( size_t pos )
-    {
-      return frames_[ pos ].IsFrameID( frameType );
-    } );
-  if( it != std::end( textFrames_) )
-    return *it; // position index
-    */
-
-  return kInvalidFramePos;
+  return ( it != std::end( id3Frames_ ) ) ? &(*it) : nullptr;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -611,27 +575,20 @@ size_t Mp3TagData::GetCommentFrameReferencePos( size_t i ) const
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// Flag the given frame for deletion. The frame remains in mFrames, so we know 
-// to delete it during Write(), but the frame is removed from mTextFrames, 
-// since it shouldn't be available for future GetText()s
+// Flag the given frame for deletion. The frame remains in id3Frames_, so we know 
+// to delete it during Write().
 
 void Mp3TagData::DeleteTextFrame( Mp3FrameType frameType )
 {
-  // TODO
-  /*
-  auto it = std::ranges::find_if( id3Frames_, [frameType]( const auto& f )
+  auto it = std::ranges::find_if( id3Frames_, [frameType]( const auto& frame )
     {
-      return f.IsFrameID( frameType );
+      return frame.IsFrameID( frameType );
     } );
-  if( it != std::end( id3Frames_ ) )
-    it->FlagToDelete();
-    */
 
-  auto framePos = GetTextFrameReferencePos( frameType );
-  if( framePos == kInvalidFramePos )
+  if( it == std::end( id3Frames_ ) )
     return;
 
-  id3Frames_[ framePos ].FlagToDelete();
+  it->FlagToDelete();
   isDirty_ = true;
 }
 

@@ -233,7 +233,6 @@ private:
   uint64_t FindApeHeaderOffset( File& ) const;
 
   const ID3Frame* GetTextFrame( Mp3FrameType ) const;
-  size_t GetTextFrameReferencePos( Mp3FrameType ) const;
 
   const ID3Frame* GetCommentFrame( size_t index ) const;
   size_t GetCommentFrameReferencePos( size_t index ) const;
