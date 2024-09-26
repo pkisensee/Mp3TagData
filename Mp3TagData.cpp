@@ -140,7 +140,7 @@ size_t Mp3TagData::GetCommentCount() const
 // MP3 files can have multiple comments; returns the comment at the given position
 // See https://mutagen-specs.readthedocs.io/en/latest/id3/id3v2.2.html#comments
 
-std::string Mp3TagData::GetComment(size_t i) const
+std::string Mp3TagData::GetComment( size_t i ) const
 {
   if( !PK_VALID( i < GetCommentCount() ) )
     return {};
@@ -168,14 +168,14 @@ void Mp3TagData::SetText( Mp3FrameType frameType, std::string_view newStr )
   // Locate the text frame
   ID3Frame* pFrame = FindTextFrame( frameType );
 
-  // If frame type isn't in MP3 file, create new frame
+  // If frame type doesn't exist yet, create new frame
   if( pFrame == nullptr )
   {
     id3Frames_.emplace_back( ID3Frame{} );
     pFrame = &id3Frames_.back();
   }
 
-  // Create a text frame of the proper size
+  // Size the frame appropriately
   auto sizeAlloc = ID3v2TextFrame::GetFrameSize( newStr );
   pFrame->Allocate( sizeAlloc );
 
@@ -201,27 +201,23 @@ void Mp3TagData::SetComment( size_t i, std::string_view newComment )
     return;
   }
 
-  assert( i <= GetCommentCount() );
-  ID3Frame* pFrame = nullptr;
-  if( i == GetCommentCount() )
+  if( !PK_VALID( i <= GetCommentCount() ) )
+    return;
+
+  ID3Frame* pFrame = FindCommentFrame( i );
+  if( pFrame == nullptr )
   {
-    // Comment at index i isn't in file yet; create new comment frame
+    // Create new comment frame
+    assert( i == GetCommentCount() );
     id3Frames_.emplace_back( ID3Frame{} );
     pFrame = &id3Frames_.back();
   }
-  else
-  {
-    // Locate the comment frame
-    pFrame = FindCommentFrame( i );
-    if( !PK_VALID( pFrame != nullptr ) )
-      return;
-  }
 
-  // Create a comment frame of the proper size
+  // Size the comment frame appropriately
   auto sizeAlloc = ID3v2CommentFrame::GetFrameSize( newComment );
   pFrame->Allocate( sizeAlloc );
 
-  // Set the frame fields
+  // Set the comment frame fields
   uint32_t frameSize = static_cast<uint32_t>( sizeAlloc - sizeof( ID3v2FrameHdr ) );
   std::string frameID = GetID3FrameID( Mp3FrameType::ID3Comment );
   ID3v2CommentFrame* pCommentFrame = reinterpret_cast<ID3v2CommentFrame*>( pFrame->GetData() );
@@ -294,8 +290,9 @@ bool Mp3TagData::Write()
   // Write all frames except deleted ones
   for( const auto& frame : id3Frames_ )
   {
-    if( frame.GetWriteBytes( fileHeader_.GetMajorVersion() ) )
-      PK_VALID( mp3File.Write( frame.GetData(), frame.GetWriteBytes( fileHeader_.GetMajorVersion() ) ) );
+    auto bytesToWrite = frame.GetWriteBytes( fileHeader_.GetMajorVersion() );
+    if( bytesToWrite )
+      PK_VALID( mp3File.Write( frame.GetData(), bytesToWrite ) );
   }
 
   // Pad with zeros
@@ -304,7 +301,7 @@ bool Mp3TagData::Write()
     // It's possible to have 2K stack buffer rather than a heap allocation, but this is simpler
     // and dominated by the file write time anyway
     std::vector<uint8_t> zeros( padBytes, 0 );
-    PK_VALID( mp3File.Write( zeros.data(), uint32_t( zeros.size() ) ) );
+    PK_VALID( mp3File.Write( zeros.data(), uint32_t( padBytes ) ) );
   }
 
   // Append audio and APE data if it was overwritten
@@ -369,7 +366,7 @@ bool Mp3TagData::ParseID3Frame( uint32_t& offset )
   ID3Frame frame( rawFrame );
   id3Frames_.emplace_back( frame );
 
-  offset += static_cast<uint32_t>(GetID3FrameBytes( rawFrame, fileHeader_.GetMajorVersion() ));
+  offset += GetID3FrameBytes( rawFrame, fileHeader_.GetMajorVersion() );
   return true;
 }
 
@@ -408,7 +405,6 @@ bool Mp3TagData::ParseAPETag( uint32_t& offset )
   if( offset >= apeFrameBuffer_.size() )
     return false;
   
-  // Archive the tag for future reference
   const auto* rawTag = apeFrameBuffer_.data() + offset;
   APETag tag( rawTag );
   apeTags_.emplace_back( tag );
@@ -449,7 +445,15 @@ void Mp3TagData::ParseAPETags()
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// Extracts the frame size from the given ID3 frame
+// Extract the frame size from the given ID3 frame
+// 
+//  rawFrame
+//  |
+//  v
+// |<--ID3v2FrameHdr-->|<-----frameSize------->|
+//       ^
+//       |
+//       frameSize stored here
 
 uint32_t Mp3TagData::GetID3FrameSize( const uint8_t* rawFrame, uint8_t majorVersion ) // static
 {
@@ -461,7 +465,13 @@ uint32_t Mp3TagData::GetID3FrameSize( const uint8_t* rawFrame, uint8_t majorVers
 ///////////////////////////////////////////////////////////////////////////////
 //
 // Extract the number of bytes represented by this ID3 frame
-// TODO FrameSize?
+// 
+//  rawFrame
+//  |
+//  v
+// |<--ID3v2FrameHdr-->|<-----frameSize------->|
+// |                                           |
+// |<---------------frameBytes---------------->|
 
 uint32_t Mp3TagData::GetID3FrameBytes( const uint8_t* rawFrame, uint8_t version ) // static
 {
@@ -473,7 +483,7 @@ uint32_t Mp3TagData::GetID3FrameBytes( const uint8_t* rawFrame, uint8_t version 
 //
 // Locate APE header in the MP3 file
 //
-// Typically found near or at the end of the file. Search in chunks to maximize
+// Typically found near the end of the file. Search in chunks to maximize
 // speed. Returns the file offset of the APE header, or kNoApeHeader if not found.
 
 uint64_t Mp3TagData::FindApeHeaderOffset( File& mp3File ) const
@@ -582,8 +592,7 @@ Mp3TagData::ID3Frame* Mp3TagData::FindCommentFrame( size_t i )
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// Flag the given frame for deletion. The frame remains in id3Frames_, so we know 
-// to delete it during Write().
+// Flag the given frame for deletion
 
 void Mp3TagData::DeleteTextFrame( Mp3FrameType frameType )
 {
@@ -595,8 +604,7 @@ void Mp3TagData::DeleteTextFrame( Mp3FrameType frameType )
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// Flag the given comment for deletion. The frame remains in id3Frames_, so we know 
-// to delete it during Write().
+// Flag the given comment for deletion
 
 void Mp3TagData::DeleteCommentFrame( size_t i )
 {

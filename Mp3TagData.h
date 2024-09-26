@@ -41,10 +41,10 @@ public:
     return id3Frames_.size(); // TODO apeFrames
   }
 
-  // Extract string from text frame
+  // Extract string from text frame/tag
   std::string GetText( Mp3FrameType ) const final;
 
-  // Set text frame string; an empty string removes the frame
+  // Set text frame/tag string; an empty string removes the frame/tag
   void SetText( Mp3FrameType, std::string_view ) final;
 
   // Extract comment at given position
@@ -94,7 +94,7 @@ private:
     using RawFramePtr = const uint8_t*;
     using FrameBuf = std::vector<uint8_t>;
 
-    RawFramePtr rawFrame = nullptr;
+    RawFramePtr rawFrame = nullptr; // TODO rawFrame_, newFrame_
     FrameBuf    newFrame;
 
     static constexpr uint32_t    kFlaggedForDelete = 1;
@@ -133,7 +133,7 @@ private:
       return newFrame.data();
     }
 
-    std::string GetID3FrameID() const
+    std::string GetID3FrameID() const // TODO string_view
     {
       const char* str = nullptr;
       switch( newFrame.size() )
@@ -203,7 +203,7 @@ private:
   {
   private:
     using RawTagPtr = const uint8_t*;
-    RawTagPtr rawTag = nullptr;
+    RawTagPtr rawTag = nullptr; // TODO rawTag_
 
   public:
     APETag() noexcept
