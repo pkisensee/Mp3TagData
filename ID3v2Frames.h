@@ -327,17 +327,6 @@ public:
     str_.SetText( newText );
   }
 
-  bool IsValid() const
-  {
-    // static_assert( std::is_standard_layout_v<ID3v2TextFrame> );
-    // Derived classes with data don't have standard layouts due to potential padding,
-    // but as long as the sizes are correct, we can use casting properly
-    static_assert( sizeof( *this ) == sizeof( ID3v2FrameHdr ) + 
-                                      sizeof( textEncoding_ ) + 
-                                      sizeof(str_) );
-    return str_.IsValid( ID3TextEncoding( textEncoding_ ) );
-  }
-
   // Determine new frame size given text value
   static uint32_t GetFrameSize( std::string_view newText )
   {
@@ -352,6 +341,7 @@ public:
   }
 
   std::string GetText( uint8_t majorVersion ) const;
+  bool IsValid() const;
 
 }; // class ID3v2TextFrame
 

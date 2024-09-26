@@ -51,12 +51,12 @@ enum class Mp3FrameType
   // Add new ID3 text frame entries here and to match kMp3FrameID below
 
   // Non-text frames
-  ID3Comment,        // COMM
+  ID3TextMax,
+  ID3Comment = ID3TextMax, // COMM
   // Add new non-text frame entries here and to match kMp3FrameID below
 
-  ID3Max,
-
   // APE frames
+  ID3Max,
   APEFirst,
   APETrackGain = APEFirst, // REPLAYGAIN_TRACK_GAIN
   APETrackPeak,            // REPLAYGAIN_TRACK_PEAK
@@ -193,23 +193,22 @@ public:
 
   ///////////////////////////////////////////////////////////////////////////////
   //
-  // True if the indicated frame represents a text frame, e.g. "Txxx"
+  // True if the indicated frame represents an ID3 text frame, e.g. "Txxx"
 
   static bool IsID3TextFrame( Mp3FrameType frameType )
   {
-    assert( frameType < Mp3FrameType::Max );
-    return IsID3TextFrame( kMp3FrameID.at( frameType ) );
+    return ( frameType >= Mp3FrameType::ID3First ) &&
+           ( frameType <  Mp3FrameType::ID3TextMax );
   }
 
-  static bool IsID3TextFrame( std::string_view frameID )
-  {
-    return IsID3TextFrame( frameID.data() );
-  }
+  ///////////////////////////////////////////////////////////////////////////////
+  //
+  // True if the indicated frame represents an APE text frame
 
-  static bool IsID3TextFrame( const char* frameID )
+  static bool IsAPETextFrame( Mp3FrameType frameType )
   {
-    assert( frameID != nullptr );
-    return *frameID == 'T';
+    return ( frameType >= Mp3FrameType::APEFirst ) &&
+           ( frameType <  Mp3FrameType::APEMax );
   }
 
   ///////////////////////////////////////////////////////////////////////////////

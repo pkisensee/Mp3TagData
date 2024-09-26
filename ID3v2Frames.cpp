@@ -18,6 +18,9 @@
 
 using namespace PKIsensee;
 
+static constexpr char kTextFrameIDStart = 'T';
+static constexpr const char* kCommentFrameID = "COMM";
+
 ///////////////////////////////////////////////////////////////////////////////
 //
 // Validates that ID3 header is reasonable
@@ -26,17 +29,11 @@ bool ID3v2FileHeader::IsValid() const
 {
   static_assert( std::is_standard_layout_v<ID3v2FileHeader> );
 
-  if( !PK_VALID( GetHeaderID() == kID3String ) )
-    return false;
-  if( !PK_VALID( majorVersion_ >= kMajorVersionMin ) )
-    return false;
-  if( !PK_VALID( majorVersion_ <= kMajorVersionMax ) )
-    return false;
-  if( !PK_VALID( minorVersion_ != 0xFF ) )
-    return false;
-  if( !PK_VALID( ( flags_ & kFlagsRemaining ) == 0x0 ) )
-    return false;
-  return true;
+  return PK_VALID( GetHeaderID() == kID3String ) &&
+         PK_VALID( majorVersion_ >= kMajorVersionMin ) &&
+         PK_VALID( majorVersion_ <= kMajorVersionMax ) &&
+         PK_VALID( minorVersion_ != 0xFF ) &&
+         PK_VALID( ( flags_ & kFlagsRemaining ) == 0x0 );
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -82,21 +79,14 @@ bool ID3v2String::IsValid( ID3TextEncoding textEncoding ) const
   case ID3TextEncoding::UTF8:
     return true;
   case ID3TextEncoding::UTF16:
-    if( !PK_VALID( unicode_.bom_[0] == kByteOrderMark0 ) )
-      return false;
-    if( !PK_VALID( unicode_.bom_[1] == kByteOrderMark1 ) )
-      return false;
-    break;
+    return PK_VALID( unicode_.bom_[0] == kByteOrderMark0 ) &&
+           PK_VALID( unicode_.bom_[1] == kByteOrderMark1 );
   case ID3TextEncoding::UTF16BE:
-    if( !PK_VALID( unicode_.bom_[0] == kByteOrderMark1 ) )
-      return false;
-    if( !PK_VALID( unicode_.bom_[1] == kByteOrderMark0 ) )
-      return false;
-    break;
+    return PK_VALID( unicode_.bom_[0] == kByteOrderMark1 ) &&
+           PK_VALID( unicode_.bom_[1] == kByteOrderMark0 );
   default:
     return false;
   }
-  return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -105,11 +95,8 @@ bool ID3v2String::IsValid( ID3TextEncoding textEncoding ) const
 
 bool ID3v2String::IsValidTextEncoding( uint8_t textEncoding ) // static
 {
-  if( !PK_VALID( textEncoding >= 0 ) )
-    return false;
-  if( !PK_VALID( textEncoding <= uint8_t( ID3TextEncoding::Max ) ) )
-    return false;
-  return true;
+  return PK_VALID( textEncoding >= 0 ) &&
+         PK_VALID( textEncoding <= uint8_t( ID3TextEncoding::Max ) );
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -198,6 +185,23 @@ std::string ID3v2TextFrame::GetText( uint8_t majorVersion ) const
 
 ///////////////////////////////////////////////////////////////////////////////
 //
+// Validate ID3 text frame fields
+
+bool ID3v2TextFrame::IsValid() const
+{
+  // static_assert( std::is_standard_layout_v<ID3v2TextFrame> );
+  // Derived classes with data don't have standard layouts due to potential padding,
+  // but as long as the sizes are correct, we can use casting properly
+  static_assert( sizeof( *this ) == sizeof( ID3v2FrameHdr ) +
+                 sizeof( textEncoding_ ) +
+                 sizeof( str_ ) );
+
+  return PK_VALID( GetFrameID()[0] == kTextFrameIDStart ) &&
+         PK_VALID( str_.IsValid( ID3TextEncoding( textEncoding_ ) ) );
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
 // Extract comment from the comment frame. Returns std::string for simplicity,
 // even if stored in Unicode. Skips and does not return the comment description.
 
@@ -277,7 +281,9 @@ bool ID3v2CommentFrame::IsValid() const
     if( !PK_VALID( CharUtil::IsAlpha( language_[i] ) ) )
       return false;
   }
-  return str_.IsValid( ID3TextEncoding( textEncoding_ ) );
+
+  return PK_VALID( GetFrameID() == kCommentFrameID ) &&
+         PK_VALID( str_.IsValid( ID3TextEncoding( textEncoding_ ) ) );
 }
 
 ///////////////////////////////////////////////////////////////////////////////

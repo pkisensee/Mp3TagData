@@ -111,15 +111,21 @@ bool Mp3TagData::LoadTagData( const std::filesystem::path& path )
 
 std::string Mp3TagData::GetText( Mp3FrameType frameType ) const
 {
-  assert( IsID3TextFrame( frameType ) );
-  const ID3Frame* pFrame = GetTextFrame(frameType);
-  if( pFrame == nullptr )
-    return {};
+  if( frameType < Mp3FrameType::ID3Max ) // TODO
+  {
+    const ID3Frame* pFrame = GetTextFrame( frameType );
+    if( pFrame == nullptr )
+      return {};
 
-  const auto* rawFrame = pFrame->GetData();
-  const auto* textFrame = reinterpret_cast<const ID3v2TextFrame*>( rawFrame );
-  assert( IsID3TextFrame( textFrame->GetFrameID() ) );
-  return textFrame->GetText( fileHeader_.GetMajorVersion() );
+    const auto* rawFrame = pFrame->GetData();
+    const auto* textFrame = reinterpret_cast<const ID3v2TextFrame*>( rawFrame );
+    return textFrame->GetText( fileHeader_.GetMajorVersion() );
+  }
+  if( IsAPETextFrame( frameType ) )
+  {
+    return {};
+  }
+  return {};
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -158,7 +164,7 @@ std::string Mp3TagData::GetComment( size_t i ) const
 
 void Mp3TagData::SetText( Mp3FrameType frameType, std::string_view newStr )
 {
-  assert( IsID3TextFrame( frameType ) );
+  // TODO handle APE frames too
   if( newStr.empty() )
   {
     DeleteTextFrame( frameType );
@@ -383,7 +389,7 @@ void Mp3TagData::ParseID3Frames()
     framesRemain = ParseID3Frame( offset );
 
   // Check for duplicate ID3 text frames, which should never exist
-  for( auto frameType = Mp3FrameType::First; frameType < Mp3FrameType::ID3Comment; ++frameType )
+  for( auto frameType = Mp3FrameType::First; frameType < Mp3FrameType::ID3TextMax; ++frameType )
   {
     size_t count = 0u;
     for( const auto& frame : id3Frames_ )
