@@ -54,7 +54,6 @@ bool Mp3TagData::LoadTagData( const std::filesystem::path& path )
   id3FrameBuffer_.resize( 0 );
   apeFrameBuffer_.resize( 0 );
   id3Frames_.resize( 0 );
-  textFrames_.resize( 0 );
   commentFrames_.resize( 0 );
   isDirty_ = false;
 
@@ -187,7 +186,6 @@ void Mp3TagData::SetText( Mp3FrameType frameType, std::string_view newStr )
     // Frame type isn't in MP3 file; create new frame and add to right lists 
     id3Frames_.emplace_back( ID3Frame{} );
     framePos = id3Frames_.size() - 1;
-    textFrames_.emplace_back( framePos );
   }
   Mp3TagData::ID3Frame* pFrame = &( id3Frames_[ framePos ] );
 
@@ -399,9 +397,7 @@ void Mp3TagData::ParseID3Frames()
   // Create sublists for common frame types
   for( size_t i = 0u; i < id3Frames_.size(); ++i )
   {
-    if( id3Frames_[i].IsTextFrame() )
-      textFrames_.emplace_back( i );
-    else if( id3Frames_[i].IsCommentFrame() )
+    if( id3Frames_[i].IsCommentFrame() )
       commentFrames_.emplace_back( i );
   }
 
@@ -410,9 +406,9 @@ void Mp3TagData::ParseID3Frames()
   {
     [[maybe_unused]] size_t count = 0;
     // TODO
-    for( auto i : textFrames_ )
-      if( id3Frames_[i].IsFrameID( frameType ) )
-        ++count;
+    //for( auto i : textFrames_ )
+    //  if( id3Frames_[i].IsFrameID( frameType ) )
+    //    ++count;
     if( count > 1 )
       PKLOG_WARN( "\nDuplicate frame %s in %S\n", GetID3FrameID(frameType).c_str(), path_.c_str());
   }
@@ -570,12 +566,24 @@ const Mp3TagData::ID3Frame* Mp3TagData::GetTextFrame( Mp3FrameType frameType ) c
 size_t Mp3TagData::GetTextFrameReferencePos( Mp3FrameType frameType ) const
 {
   assert( IsID3TextFrame( frameType ) );
+  size_t pos = 0u;
+  for( const auto& frame : id3Frames_ )
+  {
+    if( frame.IsFrameID( frameType ) )
+    {
+      return pos;
+    }
+    ++pos;
+  }
+
+  /*
   auto it = std::ranges::find_if( textFrames_, [ &frames_ = id3Frames_, frameType ]( size_t pos )
     {
       return frames_[ pos ].IsFrameID( frameType );
     } );
   if( it != std::end( textFrames_) )
     return *it; // position index
+    */
 
   return kInvalidFramePos;
 }
@@ -624,9 +632,6 @@ void Mp3TagData::DeleteTextFrame( Mp3FrameType frameType )
     return;
 
   id3Frames_[ framePos ].FlagToDelete();
-  auto pos = std::ranges::find( textFrames_, framePos );
-  if( pos != textFrames_.end() )
-    textFrames_.erase( pos );
   isDirty_ = true;
 }
 

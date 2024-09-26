@@ -254,7 +254,6 @@ private:
   std::vector<APETag>   apeTags_;        // list of all APE tags; typically <20
 
   using FramePos = size_t;               // index into mFrames
-  std::vector<FramePos>  textFrames_;    // list of all text frames (subset of id3Frames_)
   std::vector<FramePos>  commentFrames_; // list of all comment frames (subset of id3Frames_)
   bool isDirty_ = false;
 
