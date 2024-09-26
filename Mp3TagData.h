@@ -233,9 +233,12 @@ private:
   uint64_t FindApeHeaderOffset( File& ) const;
 
   const ID3Frame* GetTextFrame( Mp3FrameType ) const;
+  const Mp3TagData::ID3Frame* FindTextFrame( Mp3FrameType ) const;
+  Mp3TagData::ID3Frame* FindTextFrame( Mp3FrameType );
 
   const ID3Frame* GetCommentFrame( size_t index ) const;
-  size_t GetCommentFrameReferencePos( size_t index ) const;
+  const Mp3TagData::ID3Frame* FindCommentFrame( size_t index ) const;
+  Mp3TagData::ID3Frame* FindCommentFrame( size_t index );
 
   void DeleteTextFrame( Mp3FrameType );
   void DeleteCommentFrame( size_t index );
@@ -253,7 +256,6 @@ private:
   std::vector<APETag>   apeTags_;        // list of all APE tags; typically <20
 
   using FramePos = size_t;               // index into mFrames
-  std::vector<FramePos>  commentFrames_; // list of all comment frames (subset of id3Frames_)
   bool isDirty_ = false;
 
 }; // Mp3TagData

@@ -54,7 +54,6 @@ bool Mp3TagData::LoadTagData( const std::filesystem::path& path )
   id3FrameBuffer_.resize( 0 );
   apeFrameBuffer_.resize( 0 );
   id3Frames_.resize( 0 );
-  commentFrames_.resize( 0 );
   isDirty_ = false;
 
   File mp3File( path_ );
@@ -136,7 +135,11 @@ std::string Mp3TagData::GetText( Mp3FrameType frameType ) const
 
 size_t Mp3TagData::GetCommentCount() const
 {
-  return commentFrames_.size();
+  auto commentCount = std::ranges::count_if( id3Frames_, [](const auto& frame)
+    {
+      return frame.IsFrameID( Mp3FrameType::ID3Comment );
+    } );
+  return size_t( commentCount );
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -146,9 +149,8 @@ size_t Mp3TagData::GetCommentCount() const
 
 std::string Mp3TagData::GetComment(size_t i) const
 {
-  assert( i < commentFrames_.size() );
-  if( i >= commentFrames_.size() )
-    return std::string();
+  if( !PK_VALID( i < GetCommentCount() ) )
+    return {};
 
   const auto* rawFrame = GetCommentFrame( i )->GetData();
   const auto* commentFrame = reinterpret_cast<const ID3v2CommentFrame*>( rawFrame );
@@ -171,21 +173,13 @@ void Mp3TagData::SetText( Mp3FrameType frameType, std::string_view newStr )
   }
 
   // Locate the text frame
-  auto it = std::ranges::find_if( id3Frames_, [frameType]( const auto& frame )
-    {
-      return frame.IsFrameID( frameType );
-    } );
+  ID3Frame* pFrame = FindTextFrame( frameType );
 
-  // If frame type isn't in MP3 file create new frame
-  ID3Frame* pFrame = nullptr;
-  if( it == std::end( id3Frames_ ) )
+  // If frame type isn't in MP3 file, create new frame
+  if( pFrame == nullptr )
   {
     id3Frames_.emplace_back( ID3Frame{} );
     pFrame = &id3Frames_.back();
-  }
-  else
-  {
-    pFrame = &(*it);
   }
 
   // Create a text frame of the proper size
@@ -214,16 +208,21 @@ void Mp3TagData::SetComment( size_t i, std::string_view newComment )
     return;
   }
 
-  assert( i <= commentFrames_.size() );
-  if( i == commentFrames_.size() )
+  assert( i <= GetCommentCount() );
+  ID3Frame* pFrame = nullptr;
+  if( i == GetCommentCount() )
   {
-    // Comment at index i isn't in file yet; create new frame and add to right lists 
+    // Comment at index i isn't in file yet; create new comment frame
     id3Frames_.emplace_back( ID3Frame{} );
-    commentFrames_.emplace_back( id3Frames_.size() - 1 );
+    pFrame = &id3Frames_.back();
   }
-
-  FramePos framePos = commentFrames_[ i ];
-  Mp3TagData::ID3Frame* pFrame = &( id3Frames_[framePos] );
+  else
+  {
+    // Locate the comment frame
+    pFrame = FindCommentFrame( i );
+    if( !PK_VALID( pFrame != nullptr ) )
+      return;
+  }
 
   // Create a comment frame of the proper size
   auto sizeAlloc = ID3v2CommentFrame::GetFrameSize( newComment );
@@ -388,22 +387,15 @@ bool Mp3TagData::ParseID3Frame( uint32_t& offset )
 void Mp3TagData::ParseID3Frames()
 {
   // Build frame list
-  auto offset = 0u;
-  auto framesRemain = true;
+  uint32_t offset = 0u;
+  bool framesRemain = true;
   while( framesRemain )
     framesRemain = ParseID3Frame( offset );
 
-  // Create sublists for common frame types
-  for( size_t i = 0u; i < id3Frames_.size(); ++i )
-  {
-    if( id3Frames_[i].IsCommentFrame() )
-      commentFrames_.emplace_back( i );
-  }
-
   // Check for duplicate ID3 text frames, which should never exist
-  for( auto frameType = Mp3FrameType::First; frameType < Mp3FrameType::ID3Max; ++frameType )
+  for( auto frameType = Mp3FrameType::First; frameType < Mp3FrameType::ID3Comment; ++frameType )
   {
-    size_t count = 0;
+    size_t count = 0u;
     for( const auto& frame : id3Frames_ )
       if( frame.IsFrameID( frameType ) )
         ++count;
@@ -452,7 +444,7 @@ void Mp3TagData::ParseAPETags()
   // Build tag item list
   uint32_t offset = sizeof(APEv2TagHeader);
   for( auto itemCount = apeTagHeader->GetItemCount(); itemCount; --itemCount )
-    if( !ParseAPETag(offset) )
+    if( !ParseAPETag( offset ) )
       break;
 
   // Validate the footer
@@ -541,36 +533,58 @@ uint64_t Mp3TagData::FindApeHeaderOffset( File& mp3File ) const
 // Locate text frame
 //
 // There are on order of a couple dozen of frames in a typical MP3 file and rarely
-// more than 50, so linear search is fine
+// more than 50, so linear search on contiguous data is fine
 
 const Mp3TagData::ID3Frame* Mp3TagData::GetTextFrame( Mp3FrameType frameType ) const
+{
+  return FindTextFrame( frameType );
+}
+
+const Mp3TagData::ID3Frame* Mp3TagData::FindTextFrame( Mp3FrameType frameType ) const
 {
   auto it = std::ranges::find_if( id3Frames_, [frameType]( const auto& frame )
     {
       return frame.IsFrameID( frameType );
     } );
-  return ( it != std::end( id3Frames_ ) ) ? &(*it) : nullptr;
+  return ( it != std::end( id3Frames_ ) ) ? &( *it ) : nullptr;
 }
+
+Mp3TagData::ID3Frame* Mp3TagData::FindTextFrame( Mp3FrameType frameType )
+{
+  // casting cruft avoids code duplication
+  auto frame = std::as_const( *this ).FindTextFrame( frameType ); // invoke fn above
+  return const_cast<Mp3TagData::ID3Frame*>( frame );
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////
 //
 // Locate comment frame
+//
+// There are on order of a couple dozen of frames in a typical MP3 file and rarely
+// more than 50, so linear search on contiguous data is fine
 
 const Mp3TagData::ID3Frame* Mp3TagData::GetCommentFrame( size_t i ) const
 {
-  assert( i < commentFrames_.size() );
-  auto framePos = GetCommentFrameReferencePos( i );
-  if( framePos == kInvalidFramePos )
-    return nullptr;
-  return &( id3Frames_[ framePos ] );
+  assert( i < GetCommentCount() );
+  return FindCommentFrame( i );
 }
 
-size_t Mp3TagData::GetCommentFrameReferencePos( size_t i ) const
+const Mp3TagData::ID3Frame* Mp3TagData::FindCommentFrame( size_t i ) const
 {
-  assert( i < commentFrames_.size() );
-  if( i >= commentFrames_.size() )
-    return kInvalidFramePos;
-  return commentFrames_[ i ];
+  size_t commentIndex = 0;
+  auto it = std::ranges::find_if( id3Frames_, [i, &commentIndex]( const auto& frame )
+    {
+      return frame.IsFrameID( Mp3FrameType::ID3Comment ) && ( i == commentIndex++ );
+    } );
+  return ( it != std::end( id3Frames_ ) ) ? &( *it ) : nullptr;
+}
+
+Mp3TagData::ID3Frame* Mp3TagData::FindCommentFrame( size_t i )
+{
+  // casting cruft avoids code duplication
+  auto frame = std::as_const( *this ).FindCommentFrame( i ); // invoke fn above
+  return const_cast<Mp3TagData::ID3Frame*>( frame );
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -580,35 +594,24 @@ size_t Mp3TagData::GetCommentFrameReferencePos( size_t i ) const
 
 void Mp3TagData::DeleteTextFrame( Mp3FrameType frameType )
 {
-  auto it = std::ranges::find_if( id3Frames_, [frameType]( const auto& frame )
-    {
-      return frame.IsFrameID( frameType );
-    } );
-
-  if( it == std::end( id3Frames_ ) )
-    return;
-
-  it->FlagToDelete();
+  auto pFrame = FindTextFrame( frameType );
+  if (pFrame != nullptr )
+    pFrame->FlagToDelete();
   isDirty_ = true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// Flag the given comment for deletion. The frame remains in mFrames, so we know 
-// to delete it during Write(), but the frame is removed from mCommentFrames, 
-// since it shouldn't be available for future GetComment()s
+// Flag the given comment for deletion. The frame remains in id3Frames_, so we know 
+// to delete it during Write().
 
 void Mp3TagData::DeleteCommentFrame( size_t i )
 {
-  assert( i < commentFrames_.size() );
-  if( i >= commentFrames_.size() )
+  if( !PK_VALID( i < GetCommentCount() ) )
     return;
 
-  auto framePos = GetCommentFrameReferencePos( i );
-  id3Frames_[ framePos ].FlagToDelete();
-  auto pos = std::ranges::find( commentFrames_, framePos );
-  if ( pos != commentFrames_.end() )
-    commentFrames_.erase( pos );
+  auto* pCommentFrame = FindCommentFrame( i );
+  pCommentFrame->FlagToDelete();
   isDirty_ = true;
 }
 
