@@ -213,16 +213,6 @@ public:
 
   ///////////////////////////////////////////////////////////////////////////////
   //
-  // True if the indicated frame represents a comment frame, e.g. "COMM"
-
-  static bool IsID3CommentFrame( std::string_view frameID )
-  {
-    auto pCOMM = kMp3FrameID.at( Mp3FrameType::ID3Comment );
-    return memcmp( frameID.data(), pCOMM, kFrameIDCharCount ) == 0;
-  }
-
-  ///////////////////////////////////////////////////////////////////////////////
-  //
   // Extract frameID from raw ID3v2 frame
 
   static std::string_view GetID3FrameID( const uint8_t* rawFrame )
@@ -238,7 +228,7 @@ public:
 
   static std::string GetID3FrameID( Mp3FrameType frameType )
   {
-    assert( frameType < Mp3FrameType::APEFirst );
+    assert( frameType < Mp3FrameType::Max );
     return kMp3FrameID.at( frameType );
   }
 
@@ -249,7 +239,7 @@ public:
   static Mp3FrameType GetID3FrameType( const std::string& frameID )
   {
     assert( frameID.size() == kFrameIDCharCount );
-    return GetID3FrameType( frameID.c_str() );
+    return GetID3FrameType( frameID.c_str() ); // TODO remove?
   }
 
   static Mp3FrameType GetID3FrameType( const char* frameID )

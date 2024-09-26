@@ -159,9 +159,9 @@ std::string ID3v2TextFrame::GetText( uint8_t majorVersion ) const
   assert( majorVersion >= kMajorVersionMin && majorVersion <= kMajorVersionMax );
   if( !IsValid() )
     return {};
-  bool isWideString = IsWideString();
 
   // Determine size of string
+  bool isWideString = IsWideString();
   auto byteCount = GetTextBytes( str_, majorVersion, isWideString );
 
   std::string value;
@@ -196,6 +196,10 @@ bool ID3v2TextFrame::IsValid() const
                  sizeof( textEncoding_ ) +
                  sizeof( str_ ) );
 
+  // If header indicates text but size is zero, don't even access ID3v2TextFrame fields
+  if( GetSize( kMajorVersionWith8BitEncoding ) == 0 )
+    return false;
+
   return PK_VALID( GetFrameID()[0] == kTextFrameIDStart ) &&
          PK_VALID( str_.IsValid( ID3TextEncoding( textEncoding_ ) ) );
 }
@@ -208,6 +212,8 @@ bool ID3v2TextFrame::IsValid() const
 std::string ID3v2CommentFrame::GetText( uint8_t majorVersion ) const
 {
   assert( majorVersion >= kMajorVersionMin && majorVersion <= kMajorVersionMax );
+  if( !IsValid() )
+    return {};
   bool isWideString = IsWideString();
 
   // Determine size of string

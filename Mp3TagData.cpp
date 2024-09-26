@@ -151,9 +151,12 @@ std::string Mp3TagData::GetComment( size_t i ) const
   if( !PK_VALID( i < GetCommentCount() ) )
     return {};
 
-  const auto* rawFrame = GetCommentFrame( i )->GetData();
+  const ID3Frame* pFrame = GetCommentFrame( i );
+  if( pFrame == nullptr )
+    return {};
+
+  const auto* rawFrame = pFrame->GetData();
   const auto* commentFrame = reinterpret_cast<const ID3v2CommentFrame*>( rawFrame );
-  assert( IsID3CommentFrame( commentFrame->GetFrameID() ) );
   return commentFrame->GetText( fileHeader_.GetMajorVersion() );
 }
 
