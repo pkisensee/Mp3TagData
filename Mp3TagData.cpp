@@ -27,13 +27,6 @@
 
 using namespace PKIsensee;
 
-// TODO PK_VALID?
-#ifdef _DEBUG
-#define verify(e) assert(e)
-#else
-#define verify(e) static_cast<void>(e)
-#endif
-
 namespace // anonymous
 {
 
@@ -302,7 +295,7 @@ bool Mp3TagData::Write()
   for( const auto& frame : id3Frames_ )
   {
     if( frame.GetWriteBytes( fileHeader_.GetMajorVersion() ) )
-      verify( mp3File.Write( frame.GetData(), frame.GetWriteBytes( fileHeader_.GetMajorVersion() ) ) );
+      PK_VALID( mp3File.Write( frame.GetData(), frame.GetWriteBytes( fileHeader_.GetMajorVersion() ) ) );
   }
 
   // Pad with zeros
@@ -311,12 +304,12 @@ bool Mp3TagData::Write()
     // It's possible to have 2K stack buffer rather than a heap allocation, but this is simpler
     // and dominated by the file write time anyway
     std::vector<uint8_t> zeros( padBytes, 0 );
-    verify( mp3File.Write( zeros.data(), uint32_t( zeros.size() ) ) );
+    PK_VALID( mp3File.Write( zeros.data(), uint32_t( zeros.size() ) ) );
   }
 
   // Append audio and APE data if it was overwritten
   if( !audioData.empty() )
-    verify( mp3File.Write( audioData.data(), uint32_t( audioData.size() ) ) );
+    PK_VALID( mp3File.Write( audioData.data(), uint32_t( audioData.size() ) ) );
 
   // Update all fields with correct new data
   mp3File.Close();
