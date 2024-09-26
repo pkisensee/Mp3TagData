@@ -53,7 +53,7 @@ bool Mp3TagData::LoadTagData( const std::filesystem::path& path )
   path_ = path;
   id3FrameBuffer_.resize( 0 );
   apeFrameBuffer_.resize( 0 );
-  frames_.resize( 0 );
+  id3Frames_.resize( 0 );
   textFrames_.resize( 0 );
   commentFrames_.resize( 0 );
   isDirty_ = false;
@@ -120,14 +120,14 @@ bool Mp3TagData::LoadTagData( const std::filesystem::path& path )
 
 std::string Mp3TagData::GetText( Mp3FrameType frameType ) const
 {
-  assert( IsTextFrame( frameType ) );
+  assert( IsID3TextFrame( frameType ) );
   const ID3Frame* pFrame = GetTextFrame(frameType);
   if( pFrame == nullptr )
-    return std::string();
+    return {};
 
   const auto* rawFrame = pFrame->GetData();
   const auto* textFrame = reinterpret_cast<const ID3v2TextFrame*>( rawFrame );
-  assert( IsTextFrame( textFrame->GetFrameID() ) );
+  assert( IsID3TextFrame( textFrame->GetFrameID() ) );
   return textFrame->GetText( fileHeader_.GetMajorVersion() );
 }
 
@@ -153,7 +153,7 @@ std::string Mp3TagData::GetComment(size_t i) const
 
   const auto* rawFrame = GetCommentFrame( i )->GetData();
   const auto* commentFrame = reinterpret_cast<const ID3v2CommentFrame*>( rawFrame );
-  assert( IsCommentFrame( commentFrame->GetFrameID() ) );
+  assert( IsID3CommentFrame( commentFrame->GetFrameID() ) );
   return commentFrame->GetText( fileHeader_.GetMajorVersion() );
 }
 
@@ -164,29 +164,39 @@ std::string Mp3TagData::GetComment(size_t i) const
 
 void Mp3TagData::SetText( Mp3FrameType frameType, std::string_view newStr )
 {
-  assert( IsTextFrame( frameType ) );
+  assert( IsID3TextFrame( frameType ) );
   if( newStr.empty() )
   {
     DeleteTextFrame( frameType );
     return;
   }
 
+  /*
+  auto* pFrame = const_cast<ID3Frame*>( GetTextFrame( frameType ) );
+  if( pFrame == nullptr )
+  {
+    // Frame type isn't in MP3 file; create new frame
+    id3Frames_.emplace_back( ID3Frame{} );
+    pFrame = &( id3Frames_.back() );
+  }
+  */
+
   size_t framePos = GetTextFrameReferencePos( frameType );
   if (framePos == kInvalidFramePos )
   {
     // Frame type isn't in MP3 file; create new frame and add to right lists 
-    frames_.emplace_back( ID3Frame{} );
-    framePos = frames_.size() - 1;
+    id3Frames_.emplace_back( ID3Frame{} );
+    framePos = id3Frames_.size() - 1;
     textFrames_.emplace_back( framePos );
   }
-  Mp3TagData::ID3Frame* pFrame = &( frames_[ framePos ] );
+  Mp3TagData::ID3Frame* pFrame = &( id3Frames_[ framePos ] );
 
   // Create a text frame of the proper size
   auto sizeAlloc = ID3v2TextFrame::GetFrameSize( newStr );
   pFrame->Allocate( sizeAlloc );
 
   // Set the frame fields
-  std::string frameID = GetFrameID( frameType );
+  std::string frameID = GetID3FrameID( frameType );
   uint32_t frameSize = static_cast<uint32_t>( sizeAlloc - sizeof( ID3v2FrameHdr ) );
   ID3v2TextFrame* pTextFrame = reinterpret_cast<ID3v2TextFrame*>( pFrame->GetData() );
   pTextFrame->SetHeader( frameID, frameSize, fileHeader_.GetMajorVersion() );
@@ -211,12 +221,12 @@ void Mp3TagData::SetComment( size_t i, std::string_view newComment )
   if( i == commentFrames_.size() )
   {
     // Comment at index i isn't in file yet; create new frame and add to right lists 
-    frames_.emplace_back( ID3Frame{} );
-    commentFrames_.emplace_back( frames_.size() - 1 );
+    id3Frames_.emplace_back( ID3Frame{} );
+    commentFrames_.emplace_back( id3Frames_.size() - 1 );
   }
 
   FramePos framePos = commentFrames_[ i ];
-  Mp3TagData::ID3Frame* pFrame = &( frames_[framePos] );
+  Mp3TagData::ID3Frame* pFrame = &( id3Frames_[framePos] );
 
   // Create a comment frame of the proper size
   auto sizeAlloc = ID3v2CommentFrame::GetFrameSize( newComment );
@@ -224,7 +234,7 @@ void Mp3TagData::SetComment( size_t i, std::string_view newComment )
 
   // Set the frame fields
   uint32_t frameSize = static_cast<uint32_t>( sizeAlloc - sizeof( ID3v2FrameHdr ) );
-  std::string frameID = GetFrameID( Mp3FrameType::Comment );
+  std::string frameID = GetID3FrameID( Mp3FrameType::ID3Comment );
   ID3v2CommentFrame* pCommentFrame = reinterpret_cast<ID3v2CommentFrame*>( pFrame->GetData() );
   pCommentFrame->SetHeader( frameID, frameSize, fileHeader_.GetMajorVersion() );
   pCommentFrame->SetText( newComment );
@@ -252,7 +262,7 @@ bool Mp3TagData::Write()
 
   // same as std::accumulate
   size_t frameSectionSize = 
-    std::ranges::fold_left( frames_, size_t{}, [ fh = fileHeader_ ]( size_t sum, const ID3Frame& frame )
+    std::ranges::fold_left( id3Frames_, size_t{}, [ fh = fileHeader_ ]( size_t sum, const ID3Frame& frame )
     {
       return sum + frame.GetWriteBytes( fh.GetMajorVersion() );
     } );
@@ -293,7 +303,7 @@ bool Mp3TagData::Write()
   }
 
   // Write all frames except deleted ones
-  for( const auto& frame : frames_ )
+  for( const auto& frame : id3Frames_ )
   {
     if( frame.GetWriteBytes( fileHeader_.GetMajorVersion() ) )
       verify( mp3File.Write( frame.GetData(), frame.GetWriteBytes( fileHeader_.GetMajorVersion() ) ) );
@@ -364,14 +374,13 @@ bool Mp3TagData::ParseID3Frame( uint32_t& offset )
 
   // If we've hit a null byte or header is whacked, 
   // we're into padding territory and there are no more tags
-  if( !Mp3BaseTagData::IsValidFrame( rawFrame ) )
+  if( !Mp3BaseTagData::IsValidID3Frame( rawFrame ) )
     return false;
 
-  // TODO frames_ -> ID3frames_
   ID3Frame frame( rawFrame );
-  frames_.emplace_back( frame );
+  id3Frames_.emplace_back( frame );
 
-  offset += static_cast<uint32_t>(GetFrameBytes( rawFrame, fileHeader_.GetMajorVersion() ));
+  offset += static_cast<uint32_t>(GetID3FrameBytes( rawFrame, fileHeader_.GetMajorVersion() ));
   return true;
 }
 
@@ -388,23 +397,24 @@ void Mp3TagData::ParseID3Frames()
     framesRemain = ParseID3Frame( offset );
 
   // Create sublists for common frame types
-  for( size_t i = 0u; i < frames_.size(); ++i )
+  for( size_t i = 0u; i < id3Frames_.size(); ++i )
   {
-    if( frames_[i].IsTextFrame() )
+    if( id3Frames_[i].IsTextFrame() )
       textFrames_.emplace_back( i );
-    else if( frames_[i].IsCommentFrame() )
+    else if( id3Frames_[i].IsCommentFrame() )
       commentFrames_.emplace_back( i );
   }
 
-  // Check for duplicate text frames, which should never exist
-  for( auto frameType = Mp3FrameType::First; frameType != Mp3FrameType::Comment; ++frameType )
+  // Check for duplicate ID3 text frames, which should never exist
+  for( auto frameType = Mp3FrameType::First; frameType != Mp3FrameType::ID3Comment; ++frameType )
   {
     [[maybe_unused]] size_t count = 0;
+    // TODO
     for( auto i : textFrames_ )
-      if( frames_[ i ].IsFrameID( frameType ) )
+      if( id3Frames_[i].IsFrameID( frameType ) )
         ++count;
     if( count > 1 )
-      PKLOG_WARN( "\nDuplicate frame %s in %S\n", GetFrameID(frameType).c_str(), path_.c_str());
+      PKLOG_WARN( "\nDuplicate frame %s in %S\n", GetID3FrameID(frameType).c_str(), path_.c_str());
   }
 }
 
@@ -462,7 +472,7 @@ void Mp3TagData::ParseAPETags()
 //
 // Extracts the frame size from the given ID3 frame
 
-uint32_t Mp3TagData::GetFrameSize( const uint8_t* rawFrame, uint8_t majorVersion ) // static
+uint32_t Mp3TagData::GetID3FrameSize( const uint8_t* rawFrame, uint8_t majorVersion ) // static
 {
   assert( rawFrame != nullptr );
   const auto* frameHeader = reinterpret_cast<const ID3v2FrameHdr*>( rawFrame );
@@ -474,10 +484,10 @@ uint32_t Mp3TagData::GetFrameSize( const uint8_t* rawFrame, uint8_t majorVersion
 // Extract the number of bytes represented by this ID3 frame
 // TODO FrameSize?
 
-uint32_t Mp3TagData::GetFrameBytes( const uint8_t* rawFrame, uint8_t version ) // static
+uint32_t Mp3TagData::GetID3FrameBytes( const uint8_t* rawFrame, uint8_t version ) // static
 {
   assert( rawFrame != nullptr );
-  return sizeof( ID3v2FrameHdr ) + GetFrameSize( rawFrame, version );
+  return sizeof( ID3v2FrameHdr ) + GetID3FrameSize( rawFrame, version );
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -541,16 +551,26 @@ uint64_t Mp3TagData::FindApeHeaderOffset( File& mp3File ) const
 
 const Mp3TagData::ID3Frame* Mp3TagData::GetTextFrame( Mp3FrameType frameType ) const
 {
+  // TODO
+  /*
+  auto it = std::ranges::find_if( id3Frames_, [frameType](const auto& f)
+    {
+      return f.IsFrameID( frameType );
+    } );
+  if( it != std::end( id3Frames_ ) )
+    return &( *it );
+  return nullptr;
+  */
   auto framePos = GetTextFrameReferencePos( frameType );
   if( framePos == kInvalidFramePos )
     return nullptr;
-  return &( frames_[ framePos ] );
+  return &( id3Frames_[ framePos ] );
 }
 
 size_t Mp3TagData::GetTextFrameReferencePos( Mp3FrameType frameType ) const
 {
-  assert( IsTextFrame( frameType ) );
-  auto it = std::ranges::find_if( textFrames_, [ &frames_ = frames_, frameType ]( size_t pos )
+  assert( IsID3TextFrame( frameType ) );
+  auto it = std::ranges::find_if( textFrames_, [ &frames_ = id3Frames_, frameType ]( size_t pos )
     {
       return frames_[ pos ].IsFrameID( frameType );
     } );
@@ -570,7 +590,7 @@ const Mp3TagData::ID3Frame* Mp3TagData::GetCommentFrame( size_t i ) const
   auto framePos = GetCommentFrameReferencePos( i );
   if( framePos == kInvalidFramePos )
     return nullptr;
-  return &( frames_[ framePos ] );
+  return &( id3Frames_[ framePos ] );
 }
 
 size_t Mp3TagData::GetCommentFrameReferencePos( size_t i ) const
@@ -589,11 +609,21 @@ size_t Mp3TagData::GetCommentFrameReferencePos( size_t i ) const
 
 void Mp3TagData::DeleteTextFrame( Mp3FrameType frameType )
 {
+  // TODO
+  /*
+  auto it = std::ranges::find_if( id3Frames_, [frameType]( const auto& f )
+    {
+      return f.IsFrameID( frameType );
+    } );
+  if( it != std::end( id3Frames_ ) )
+    it->FlagToDelete();
+    */
+
   auto framePos = GetTextFrameReferencePos( frameType );
   if( framePos == kInvalidFramePos )
     return;
 
-  frames_[ framePos ].FlagToDelete();
+  id3Frames_[ framePos ].FlagToDelete();
   auto pos = std::ranges::find( textFrames_, framePos );
   if( pos != textFrames_.end() )
     textFrames_.erase( pos );
@@ -613,7 +643,7 @@ void Mp3TagData::DeleteCommentFrame( size_t i )
     return;
 
   auto framePos = GetCommentFrameReferencePos( i );
-  frames_[ framePos ].FlagToDelete();
+  id3Frames_[ framePos ].FlagToDelete();
   auto pos = std::ranges::find( commentFrames_, framePos );
   if ( pos != commentFrames_.end() )
     commentFrames_.erase( pos );
@@ -687,9 +717,9 @@ std::ostream& PKIsensee::operator<<( std::ostream& out, const Mp3TagData& tagDat
   out << "Siz:" << hdr.GetSize() << " (" << std::hex << std::uppercase << hdr.GetSize() << std::dec << ")\n";
   out << "AudOffset:" << tagData.audioBufferOffset_ << '\n';
 
-  for( const auto& f : tagData.frames_ )
+  for( const auto& f : tagData.id3Frames_ )
   {
-    out << "ID3: " << f.GetFrameID();
+    out << "ID3: " << f.GetID3FrameID();
     const auto* rawFrame = f.GetData();
     const auto* id3Frame = reinterpret_cast<const ID3v2FrameHdr*>( rawFrame );
     out << " Siz:" << id3Frame->GetSize( hdr.GetMajorVersion() ) << ' ';

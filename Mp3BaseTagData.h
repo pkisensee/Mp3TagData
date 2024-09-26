@@ -28,30 +28,37 @@ enum class Mp3FrameType
 {
   None = 0,
   First = 1,
+  ID3First = First,
 
   // Text frames
-  Title = First,   // TIT2
-  Subtitle,        // TIT3
-  Genre,           // TCON
-  Artist,          // TPE1
-  Album,           // TALB
-  Composer,        // TCOM
-  Orchestra,       // TPE2
-  OrigArtist,      // TOPE
-  Year,            // TYER
-  OrigYear,        // TORY
-  TrackNum,        // TRCK
-  BeatsPerMinute,  // TBPM
-  Duration,        // TLEN
-  Key,             // TKEY
-  Conductor,       // TPE3
-  Language,        // TLAN
-  Mood,            // TMOO
-  // Add new text frame entries here and to match below
+  ID3Title = First,  // TIT2
+  ID3Subtitle,       // TIT3
+  ID3Genre,          // TCON
+  ID3Artist,         // TPE1
+  ID3Album,          // TALB
+  ID3Composer,       // TCOM
+  ID3Orchestra,      // TPE2
+  ID3OrigArtist,     // TOPE
+  ID3Year,           // TYER
+  ID3OrigYear,       // TORY
+  ID3TrackNum,       // TRCK
+  ID3BeatsPerMinute, // TBPM
+  ID3Duration,       // TLEN
+  ID3Key,            // TKEY
+  ID3Conductor,      // TPE3
+  ID3Language,       // TLAN
+  ID3Mood,           // TMOO
+  // Add new ID3 text frame entries here and to match below
 
-  // Other frames
-  Comment,         // COMM
+  // Non-text frames
+  ID3Comment,        // COMM
   // Add new non-text frame entries here and to match below
+
+  // APE frames
+  APEFirst,
+  APETrackGain = APEFirst, // REPLAYGAIN_TRACK_GAIN
+  APETrackPeak,            // REPLAYGAIN_TRACK_PEAK
+  // Add new APE frame entries here and to match below
 
   Max
 };
@@ -62,25 +69,27 @@ kMp3FrameID =
 {
   // https://mutagen-specs.readthedocs.io/en/latest/id3/id3v2.3.0.html#4.2.1
   // This is not an inclusive list, only the most useful frame info
-  { Mp3FrameType::None,           ""     },
-  { Mp3FrameType::Title,          "TIT2" },
-  { Mp3FrameType::Subtitle,       "TIT3" }, // Rare, e.g. "Op. 6"
-  { Mp3FrameType::Genre,          "TCON" }, // May be numeric; may have parens, e.g. "(21)"
-  { Mp3FrameType::Artist,         "TPE1" }, // May have forward slashes as separators
-  { Mp3FrameType::Album,          "TALB" },
-  { Mp3FrameType::Composer,       "TCOM" }, // May have forward slashes as separators
-  { Mp3FrameType::Orchestra,      "TPE2" }, // Often called "Album Artist"
-  { Mp3FrameType::OrigArtist,     "TOPE" }, // Rare
-  { Mp3FrameType::Year,           "TYER" }, // YYYY
-  { Mp3FrameType::OrigYear,       "TORY" }, // Rare; YYYY
-  { Mp3FrameType::TrackNum,       "TRCK" }, // e.g. "5" or "5/12"
-  { Mp3FrameType::BeatsPerMinute, "TBPM" }, // e.g. "100"
-  { Mp3FrameType::Duration,       "TLEN" }, // Milliseconds; often incorrect for VBR
-  { Mp3FrameType::Key,            "TKEY" }, // e.g. "C#m"
-  { Mp3FrameType::Conductor,      "TPE3" },
-  { Mp3FrameType::Language,       "TLAN" }, // Rare; ISO-639-2 3-char codes
-  { Mp3FrameType::Mood,           "TMOO" }, // v2.4; rare
-  { Mp3FrameType::Comment,        "COMM" }  // Multiple allowed
+  { Mp3FrameType::None,              ""     },
+  { Mp3FrameType::ID3Title,          "TIT2" },
+  { Mp3FrameType::ID3Subtitle,       "TIT3" }, // Rare, e.g. "Op. 6"
+  { Mp3FrameType::ID3Genre,          "TCON" }, // May be numeric; may have parens, e.g. "(21)"
+  { Mp3FrameType::ID3Artist,         "TPE1" }, // May have forward slashes as separators
+  { Mp3FrameType::ID3Album,          "TALB" },
+  { Mp3FrameType::ID3Composer,       "TCOM" }, // May have forward slashes as separators
+  { Mp3FrameType::ID3Orchestra,      "TPE2" }, // Often called "Album Artist"
+  { Mp3FrameType::ID3OrigArtist,     "TOPE" }, // Rare
+  { Mp3FrameType::ID3Year,           "TYER" }, // YYYY
+  { Mp3FrameType::ID3OrigYear,       "TORY" }, // Rare; YYYY
+  { Mp3FrameType::ID3TrackNum,       "TRCK" }, // e.g. "5" or "5/12"
+  { Mp3FrameType::ID3BeatsPerMinute, "TBPM" }, // e.g. "100"
+  { Mp3FrameType::ID3Duration,       "TLEN" }, // Milliseconds; often incorrect for VBR
+  { Mp3FrameType::ID3Key,            "TKEY" }, // e.g. "C#m"
+  { Mp3FrameType::ID3Conductor,      "TPE3" },
+  { Mp3FrameType::ID3Language,       "TLAN" }, // Rare; ISO-639-2 3-char codes
+  { Mp3FrameType::ID3Mood,           "TMOO" }, // v2.4; rare
+  { Mp3FrameType::ID3Comment,        "COMM" }, // Multiple allowed
+  { Mp3FrameType::APETrackGain,      "REPLAYGAIN_TRACK_GAIN" }, // dB
+  { Mp3FrameType::APETrackPeak,      "REPLAYGAIN_TRACK_PEAK" }, // dB
 };
 
 inline Mp3FrameType& operator++( Mp3FrameType& frameType )
@@ -114,12 +123,12 @@ public:
   // Extract string from text frame
   virtual std::string GetText( Mp3FrameType ) const = 0;
 
+  // Set text frame string; an empty string removes the frame
+  virtual void SetText( Mp3FrameType, std::string_view ) = 0;
+
   // Extract comment at given position
   virtual size_t GetCommentCount() const = 0;
   virtual std::string GetComment( size_t index ) const = 0;
-
-  // Set text frame string; an empty string removes the frame
-  virtual void SetText( Mp3FrameType, std::string_view ) = 0;
 
   // Set comment frame string; an empty string removes the frame
   // A string at position GetCommentCount() adds a new comment
@@ -143,9 +152,9 @@ public:
 
   ///////////////////////////////////////////////////////////////////////////////
   //
-  // True if incoming buffer looks like a typical MP3 frame
+  // True if incoming buffer looks like a typical ID3 frame
 
-  static bool IsValidFrame( const uint8_t* rawFrame )
+  static bool IsValidID3Frame( const uint8_t* rawFrame )
   {
     if( rawFrame == nullptr )
       return false;
@@ -154,14 +163,14 @@ public:
     if( *rawFrame == 0 )
       return false;
 
-    return Mp3BaseTagData::IsValidFrameID( GetFrameID(rawFrame) );
+    return Mp3BaseTagData::IsValidID3FrameID( GetID3FrameID(rawFrame) );
   }
 
   ///////////////////////////////////////////////////////////////////////////////
   //
-  // FrameID must be capital letters A-Z or 0-9
+  // ID3 FrameID must be capital letters A-Z or 0-9
 
-  static bool IsValidFrameID( std::string_view frameID )
+  static bool IsValidID3FrameID( std::string_view frameID )
   {
     // Must be 4 characters, alphanumeric and uppercase
     if( frameID.size() != kFrameIDCharCount )
@@ -182,18 +191,18 @@ public:
   //
   // True if the indicated frame represents a text frame, e.g. "Txxx"
 
-  static bool IsTextFrame( Mp3FrameType frameType )
+  static bool IsID3TextFrame( Mp3FrameType frameType )
   {
     assert( frameType < Mp3FrameType::Max );
-    return IsTextFrame( kMp3FrameID.at( frameType ) );
+    return IsID3TextFrame( kMp3FrameID.at( frameType ) );
   }
 
-  static bool IsTextFrame( std::string_view frameID )
+  static bool IsID3TextFrame( std::string_view frameID )
   {
-    return IsTextFrame( frameID.data() );
+    return IsID3TextFrame( frameID.data() );
   }
 
-  static bool IsTextFrame( const char* frameID )
+  static bool IsID3TextFrame( const char* frameID )
   {
     assert( frameID != nullptr );
     return *frameID == 'T';
@@ -201,24 +210,19 @@ public:
 
   ///////////////////////////////////////////////////////////////////////////////
   //
-  // True if the indicated frame represents a text frame, e.g. "COMM"
+  // True if the indicated frame represents a comment frame, e.g. "COMM"
 
-  static bool IsCommentFrame( std::string_view frameID )
+  static bool IsID3CommentFrame( std::string_view frameID )
   {
-    return IsCommentFrame( frameID.data() );
-  }
-
-  static bool IsCommentFrame( const char* frameID )
-  {
-    assert( frameID != nullptr );
-    return *frameID == 'C';
+    auto pCOMM = kMp3FrameID.at( Mp3FrameType::ID3Comment );
+    return memcmp( frameID.data(), pCOMM, kFrameIDCharCount ) == 0;
   }
 
   ///////////////////////////////////////////////////////////////////////////////
   //
   // Extract frameID from raw ID3v2 frame
 
-  static std::string_view GetFrameID( const uint8_t* rawFrame )
+  static std::string_view GetID3FrameID( const uint8_t* rawFrame )
   {
     assert( rawFrame != nullptr );
     const auto* frameHeader = reinterpret_cast<const ID3v2FrameHdr*>( rawFrame );
@@ -229,9 +233,9 @@ public:
   //
   // Convert frame type to frameID string
 
-  static std::string GetFrameID( Mp3FrameType frameType )
+  static std::string GetID3FrameID( Mp3FrameType frameType )
   {
-    assert( frameType < Mp3FrameType::Max );
+    assert( frameType < Mp3FrameType::APEFirst );
     return kMp3FrameID.at( frameType );
   }
 
@@ -239,18 +243,18 @@ public:
   //
   // Convert frameID string to frame type
 
-  static Mp3FrameType GetFrameType( const std::string& frameID )
+  static Mp3FrameType GetID3FrameType( const std::string& frameID )
   {
     assert( frameID.size() == kFrameIDCharCount );
-    return GetFrameType( frameID.c_str() );
+    return GetID3FrameType( frameID.c_str() );
   }
 
-  static Mp3FrameType GetFrameType( const char* frameID )
+  static Mp3FrameType GetID3FrameType( const char* frameID )
   {
     // Note: frameID not necessarily null terminated
     assert( frameID != nullptr );
     Mp3FrameType frameType = Mp3FrameType::None; 
-    for ( ++frameType; frameType != Mp3FrameType::Max; ++frameType )
+    for ( ++frameType; frameType != Mp3FrameType::APEFirst; ++frameType )
     {
       if( memcmp( frameID, kMp3FrameID.at( frameType ), kFrameIDCharCount ) == 0 )
         return frameType;

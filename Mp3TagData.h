@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <vector>
 
+#include "File.h"
 #include "Mp3BaseTagData.h"
 
 namespace PKIsensee
@@ -37,18 +38,18 @@ public:
 
   size_t GetFrameCount() const
   {
-    return frames_.size();
+    return id3Frames_.size(); // TODO apeFrames
   }
 
   // Extract string from text frame
   std::string GetText( Mp3FrameType ) const final;
 
+  // Set text frame string; an empty string removes the frame
+  void SetText( Mp3FrameType, std::string_view ) final;
+
   // Extract comment at given position
   size_t GetCommentCount() const final;
   std::string GetComment( size_t index=0 ) const final;
-
-  // Set text frame string; an empty string removes the frame
-  void SetText( Mp3FrameType, std::string_view ) final;
 
   // Set comment frame string; an empty string removes the frame
   // A string at position GetCommentCount() adds a new comment
@@ -71,8 +72,8 @@ private:
   void ParseID3Frames();
   bool ParseAPETag( uint32_t& offset );
   void ParseAPETags();
-  static uint32_t GetFrameSize( const uint8_t* rawFrame, uint8_t version );
-  static uint32_t GetFrameBytes( const uint8_t* rawFrame, uint8_t version );
+  static uint32_t GetID3FrameSize( const uint8_t* rawFrame, uint8_t version );
+  static uint32_t GetID3FrameBytes( const uint8_t* rawFrame, uint8_t version );
 
   ///////////////////////////////////////////////////////////////////////////
   //
@@ -98,7 +99,7 @@ private:
 
     static constexpr uint32_t    kFlaggedForDelete = 1;
     static constexpr const char* kFlaggedForDeleteTag = "DEL ";
-    static constexpr const char* kPrivateFrameID = "PRIV";
+    static constexpr const char* kPrivateID3FrameID = "PRIV";
 
   public:
     ID3Frame() noexcept
@@ -132,7 +133,7 @@ private:
       return newFrame.data();
     }
 
-    std::string GetFrameID() const
+    std::string GetID3FrameID() const
     {
       const char* str = nullptr;
       switch( newFrame.size() )
@@ -151,17 +152,17 @@ private:
 
     bool IsFrameID( Mp3FrameType frameType ) const
     {
-      return this->GetFrameID() == Mp3BaseTagData::GetFrameID( frameType );
+      return this->GetID3FrameID() == Mp3BaseTagData::GetID3FrameID( frameType );
     }
 
     bool IsCommentFrame() const
     {
-      return IsFrameID( Mp3FrameType::Comment );
+      return IsFrameID( Mp3FrameType::ID3Comment );
     }
 
     bool IsPrivateFrame() const
     {
-      return this->GetFrameID() == kPrivateFrameID;
+      return this->GetID3FrameID() == kPrivateID3FrameID;
     }
 
     void Allocate( size_t size ) // prepare newFrame to receive data
@@ -184,7 +185,7 @@ private:
       uint32_t newFrameSize = static_cast<uint32_t>( newFrame.size() );
       switch( newFrameSize )
       {
-      case 0:                 return GetFrameBytes( rawFrame, version ); // orig frame
+      case 0:                 return GetID3FrameBytes( rawFrame, version ); // orig frame
       case kFlaggedForDelete: return 0u;
       default:                return newFrameSize;
       }
@@ -247,14 +248,14 @@ private:
   std::filesystem::path path_;
   ID3v2FileHeader       fileHeader_;
   uint32_t              audioBufferOffset_ = 0u;;
-  std::vector<uint8_t>  id3FrameBuffer_; // raw buffer of all ID3 frames
-  std::vector<uint8_t>  apeFrameBuffer_; // raw buffer of all APE frames
-  std::vector<ID3Frame> frames_;         // list of all MP3 frames; typically <50
-  std::vector<APETag>   apeTags_;        // list of all APE tags; typically <50
+  std::vector<uint8_t>  id3FrameBuffer_; // raw buffer containing all ID3 frames
+  std::vector<uint8_t>  apeFrameBuffer_; // raw buffer containing all APE frames
+  std::vector<ID3Frame> id3Frames_;      // list of all ID3 frames; typically <50
+  std::vector<APETag>   apeTags_;        // list of all APE tags; typically <20
 
   using FramePos = size_t;               // index into mFrames
-  std::vector<FramePos>  textFrames_;    // list of all text frames (subset of frames_)
-  std::vector<FramePos>  commentFrames_; // list of all comment frames (subset of frames_)
+  std::vector<FramePos>  textFrames_;    // list of all text frames (subset of id3Frames_)
+  std::vector<FramePos>  commentFrames_; // list of all comment frames (subset of id3Frames_)
   bool isDirty_ = false;
 
 }; // Mp3TagData
