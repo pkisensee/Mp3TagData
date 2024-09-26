@@ -88,14 +88,14 @@ private:
   //
   // Safe to cast rawFrame or newFrame.data() to ID3v2FrameHdr*
 
-  struct ID3Frame
+  class ID3Frame
   {
   private:
     using RawFramePtr = const uint8_t*;
     using FrameBuf = std::vector<uint8_t>;
 
-    RawFramePtr rawFrame = nullptr; // TODO rawFrame_, newFrame_
-    FrameBuf    newFrame;
+    RawFramePtr rawFrame_ = nullptr;
+    FrameBuf    newFrame_;
 
     static constexpr uint32_t    kFlaggedForDelete = 1;
     static constexpr const char* kFlaggedForDeleteTag = "DEL ";
@@ -107,7 +107,7 @@ private:
     }
 
     explicit ID3Frame( RawFramePtr f ) noexcept
-      : rawFrame( f )
+      : rawFrame_( f )
     {
     }
 
@@ -118,31 +118,31 @@ private:
 
     const uint8_t* GetData() const // select the most relevant data
     {
-      switch( newFrame.size() )
+      switch( newFrame_.size() )
       {
-      case 0:                 return rawFrame;
-      case kFlaggedForDelete: return rawFrame;
-      default:                return newFrame.data();
+      case 0:                 return rawFrame_;
+      case kFlaggedForDelete: return rawFrame_;
+      default:                return newFrame_.data();
       }
     }
 
     uint8_t* GetData() // can only modify newFrame
     {
-      assert( newFrame.size() > 0 );
-      assert( newFrame.size() != kFlaggedForDelete );
-      return newFrame.data();
+      assert( newFrame_.size() > 0 );
+      assert( newFrame_.size() != kFlaggedForDelete );
+      return newFrame_.data();
     }
 
-    std::string GetID3FrameID() const // TODO string_view
+    std::string_view GetID3FrameID() const
     {
       const char* str = nullptr;
-      switch( newFrame.size() )
+      switch( newFrame_.size() )
       {
-      case 0:                 str = reinterpret_cast<const char*>( rawFrame ); break;
+      case 0:                 str = reinterpret_cast<const char*>( rawFrame_ ); break;
       case kFlaggedForDelete: str = kFlaggedForDeleteTag; break;
-      default:                str = reinterpret_cast<const char*>( newFrame.data() ); break;
+      default:                str = reinterpret_cast<const char*>( newFrame_.data() ); break;
       }
-      return std::string{ str[ 0 ], str[ 1 ], str[ 2 ], str[ 3 ] };
+      return std::string_view{ str, kFrameIDCharCount };
     }
 
     bool IsTextFrame() const // all ID3 text frames start w/ T
@@ -167,25 +167,25 @@ private:
 
     void Allocate( size_t size ) // prepare newFrame to receive data
     {
-      newFrame.resize( size );
+      newFrame_.resize( size );
     }
 
     bool IsDirty() const // we should write this frame to storage
     {
-      return( ( newFrame.size() > 0 ) && ( newFrame.size() != kFlaggedForDelete ) );
+      return( ( newFrame_.size() > 0 ) && ( newFrame_.size() != kFlaggedForDelete ) );
     }
 
     void FlagToDelete() // remove this frame from storage
     {
-      newFrame.resize( kFlaggedForDelete );
+      newFrame_.resize( kFlaggedForDelete );
     }
 
     uint32_t GetWriteBytes( uint8_t version ) const // # bytes to write
     {
-      uint32_t newFrameSize = static_cast<uint32_t>( newFrame.size() );
+      uint32_t newFrameSize = static_cast<uint32_t>( newFrame_.size() );
       switch( newFrameSize )
       {
-      case 0:                 return GetID3FrameBytes( rawFrame, version ); // orig frame
+      case 0:                 return GetID3FrameBytes( rawFrame_, version ); // orig frame
       case kFlaggedForDelete: return 0u;
       default:                return newFrameSize;
       }
@@ -199,11 +199,11 @@ private:
   // APE tags currently treated as read-only.
   // Safe to cast GetData() to const APEv2TagItem*
 
-  struct APETag
+  class APETag
   {
   private:
     using RawTagPtr = const uint8_t*;
-    RawTagPtr rawTag = nullptr; // TODO rawTag_
+    RawTagPtr rawTag_ = nullptr;
 
   public:
     APETag() noexcept
@@ -211,7 +211,7 @@ private:
     }
 
     explicit APETag(RawTagPtr t) noexcept
-      : rawTag(t)
+      : rawTag_(t)
     {
     }
 
@@ -223,7 +223,7 @@ private:
     const uint8_t* GetData() const
     {
       // safe to cast to APEv2TagItem
-      return rawTag;
+      return rawTag_;
     }
 
   }; // APETag
