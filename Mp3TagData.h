@@ -147,7 +147,7 @@ private:
 
     bool IsTextFrame() const // all ID3 text frames start w/ T
     {
-      return ( *GetData() == 'T' );
+      return ( *GetData() == 'T' ); // TODO used?
     }
 
     bool IsFrameID( Mp3FrameType frameType ) const
@@ -226,19 +226,35 @@ private:
       return rawTag_;
     }
 
+    std::string_view GetAPETagID() const
+    {
+      if( GetData() == nullptr )
+        return {};
+      const auto* apeTag = reinterpret_cast<const APEv2TagItem*>( GetData() );
+      return apeTag->GetKey();
+    }
+
+    bool IsTagID( Mp3FrameType tagType ) const
+    {
+      return this->GetAPETagID() == Mp3BaseTagData::GetAPETagID( tagType );
+    }
   }; // APETag
 
 private:
 
   uint64_t FindApeHeaderOffset( File& ) const;
 
-  const ID3Frame* GetTextFrame( Mp3FrameType ) const;
-  const Mp3TagData::ID3Frame* FindTextFrame( Mp3FrameType ) const;
-  Mp3TagData::ID3Frame* FindTextFrame( Mp3FrameType );
+  const ID3Frame* GetID3TextFrame( Mp3FrameType ) const;
+  const Mp3TagData::ID3Frame* FindID3TextFrame( Mp3FrameType ) const;
+  Mp3TagData::ID3Frame* FindID3TextFrame( Mp3FrameType );
 
-  const ID3Frame* GetCommentFrame( size_t index ) const;
-  const Mp3TagData::ID3Frame* FindCommentFrame( size_t index ) const;
-  Mp3TagData::ID3Frame* FindCommentFrame( size_t index );
+  const ID3Frame* GetID3CommentFrame( size_t index ) const;
+  const Mp3TagData::ID3Frame* FindID3CommentFrame( size_t index ) const;
+  Mp3TagData::ID3Frame* FindID3CommentFrame( size_t index );
+
+  const APETag* GetAPETextTag( Mp3FrameType ) const;
+  const Mp3TagData::APETag* FindAPETextTag( Mp3FrameType ) const;
+  Mp3TagData::APETag* FindAPETextTag( Mp3FrameType );
 
   void DeleteTextFrame( Mp3FrameType );
   void DeleteCommentFrame( size_t index );

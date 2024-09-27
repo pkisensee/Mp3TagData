@@ -18,6 +18,7 @@
 #include <string>
 
 #include "..\frozen\unordered_map.h"
+#include "APEv2Tags.h"
 #include "Id3v2Frames.h"
 #include "StrUtil.h"
 
@@ -193,7 +194,7 @@ public:
 
   ///////////////////////////////////////////////////////////////////////////////
   //
-  // True if the indicated frame represents an ID3 text frame, e.g. "Txxx"
+  // True if the indicated frame represents an ID3 text frame, e.g. "T???"
 
   static bool IsID3TextFrame( Mp3FrameType frameType )
   {
@@ -203,12 +204,12 @@ public:
 
   ///////////////////////////////////////////////////////////////////////////////
   //
-  // True if the indicated frame represents an APE text frame
+  // True if the indicated frame represents an APE text tag
 
-  static bool IsAPETextFrame( Mp3FrameType frameType )
+  static bool IsAPETextTag( Mp3FrameType tagType )
   {
-    return ( frameType >= Mp3FrameType::APEFirst ) &&
-           ( frameType <  Mp3FrameType::APEMax );
+    return ( tagType >= Mp3FrameType::APEFirst ) &&
+           ( tagType <  Mp3FrameType::APEMax );
   }
 
   ///////////////////////////////////////////////////////////////////////////////
@@ -224,14 +225,33 @@ public:
 
   ///////////////////////////////////////////////////////////////////////////////
   //
-  // Convert frame type to frameID string
+  // Extract tagID from raw APE frame
 
-  static std::string GetID3FrameID( Mp3FrameType frameType )
+  static std::string_view GetAPETagID( const uint8_t* rawFrame )
   {
-    assert( frameType < Mp3FrameType::Max );
+    assert( rawFrame != nullptr );
+    const auto* pTag = reinterpret_cast<const APEv2TagItem*>( rawFrame );
+    return pTag->GetKey();
+  }
+
+  ///////////////////////////////////////////////////////////////////////////////
+  //
+  // Convert frame/tag type to frameID string
+
+  static std::string_view GetID3FrameID( Mp3FrameType frameType )
+  {
+    assert( frameType >= Mp3FrameType::ID3First );
+    assert( frameType <  Mp3FrameType::ID3Max );
     return kMp3FrameID.at( frameType );
   }
-  
+
+  static std::string_view GetAPETagID( Mp3FrameType tagType )
+  {
+    assert( tagType >= Mp3FrameType::APEFirst );
+    assert( tagType <  Mp3FrameType::APEMax );
+    return kMp3FrameID.at( tagType );
+  }
+
 }; // class Mp3BaseTagData
 
 } // namespace PKIsensee
