@@ -11,6 +11,9 @@
 // 
 //  This software is provided "as is" and without any express or implied
 //  warranties.
+// 
+//  Supports reading both ID3 and APE frames/tags from MP3 file data. Uses the
+//  word "frames" to represent both types.
 //
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -38,7 +41,7 @@ public:
 
   size_t GetFrameCount() const
   {
-    return id3Frames_.size(); // TODO apeFrames
+    return id3Frames_.size() + apeTags_.size();
   }
 
   // Extract string from text frame/tag
@@ -51,14 +54,14 @@ public:
   size_t GetCommentCount() const final;
   std::string GetComment( size_t index=0 ) const final;
 
-  // Set comment frame string; an empty string removes the frame
+  // Set comment; an empty string removes the comment
   // A string at position GetCommentCount() adds a new comment
   void SetComment( size_t index, std::string_view ) final;
 
   // Location in file where to start looking for MPEG audio data
   uint32_t GetAudioBufferOffset() const;
 
-  // Write frame data if there have been changes
+  // Write frame/tag data if there have been changes
   bool Write() final;
   bool IsDirty() const final
   {
@@ -265,13 +268,11 @@ private:
 
   std::filesystem::path path_;
   ID3v2FileHeader       fileHeader_;
-  uint32_t              audioBufferOffset_ = 0u;;
+  uint32_t              audioBufferOffset_ = 0u;
   std::vector<uint8_t>  id3FrameBuffer_; // raw buffer containing all ID3 frames
   std::vector<uint8_t>  apeFrameBuffer_; // raw buffer containing all APE frames
   std::vector<ID3Frame> id3Frames_;      // list of all ID3 frames; typically <50
   std::vector<APETag>   apeTags_;        // list of all APE tags; typically <20
-
-  using FramePos = size_t;               // index into mFrames
   bool isDirty_ = false;
 
 }; // Mp3TagData
