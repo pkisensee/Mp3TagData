@@ -150,7 +150,7 @@ private:
 
     bool IsTextFrame() const // all ID3 text frames start w/ T
     {
-      return ( *GetData() == 'T' ); // TODO used?
+      return ( *GetData() == 'T' );
     }
 
     bool IsFrameID( Mp3FrameType frameType ) const
