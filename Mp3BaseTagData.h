@@ -59,7 +59,7 @@ enum class Mp3FrameType
   // APE frames
   ID3Max,
   APEFirst,
-  APETrackGain = APEFirst, // REPLAYGAIN_TRACK_GAIN
+  APETrackGain = APEFirst, // REPLAYGAIN_TRACK_GAIN; during MP3 frame decoding, multiply the decoded sound samples by 10^(gain/20); see https://wiki.hydrogenaud.io/index.php/ReplayGain and https://wiki.hydrogenaud.io/index.php?title=ReplayGain_1.0_specification
   APETrackPeak,            // REPLAYGAIN_TRACK_PEAK
   // Add new APE frame entries here and to match kMp3FrameID below
 
