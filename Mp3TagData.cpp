@@ -101,7 +101,6 @@ bool Mp3TagData::LoadTagData( const std::filesystem::path& path )
   // Parse frames/tags
   ParseID3Frames();
   ParseAPETags();
-  fileClose.wait();
   return true;
 };
 
