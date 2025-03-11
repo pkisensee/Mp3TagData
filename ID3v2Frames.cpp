@@ -284,7 +284,7 @@ bool ID3v2CommentFrame::IsValid() const
 
   for( size_t i = 0; i < kLanguageCharCount; ++i )
   {
-    if( !PK_VALID( CharUtil::IsAlpha( language_[i] ) ) )
+    if( !PK_VALID( language_[i] == '\0' || CharUtil::IsAlpha(language_[i])) )
       return false;
   }
 
